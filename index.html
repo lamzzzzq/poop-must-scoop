@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#5a8f3a">
+<title>屎必须铲 Poop Must Scoop</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header id="hud">
+    <div class="hud-row">
+      <span id="hud-day">第 1 天</span>
+      <span id="hud-cans">🥫 0</span>
+      <span id="hud-cats">🐈 1/5</span>
+    </div>
+    <div class="hud-bars">
+      <div class="bar"><span class="bar-label">体力</span><div class="bar-track"><div id="bar-stamina" class="bar-fill stamina"></div></div><span id="txt-stamina" class="bar-val">15</span></div>
+      <div class="bar"><span class="bar-label">清洁</span><div class="bar-track"><div id="bar-clean" class="bar-fill clean"></div></div><span id="txt-clean" class="bar-val">100%</span></div>
+    </div>
+  </header>
+  <div id="stage">
+    <canvas id="cv"></canvas>
+    <div id="splash" class="overlay">
+      <div class="card">
+        <h1>屎必须铲</h1>
+        <p class="sub">Poop Must Scoop · 可玩 demo v0.1</p>
+        <p>你是一所猫咪后院的铲屎官。<br>猫来了会拉，你铲。铲得干净猫就更多。</p>
+        <p class="tip">点哪里铲哪里 · 手酸了当天收工 · 屎放着不会消失，只会变形</p>
+        <button id="btn-start" class="primary">开始铲</button>
+        <button id="btn-reset" class="ghost">清空存档重开</button>
+      </div>
+    </div>
+    <div id="dayend" class="overlay hidden">
+      <div class="card wide">
+        <h2 id="de-title">第 1 天 · 收工</h2>
+        <div id="de-summary" class="summary"></div>
+        <div id="de-cats" class="catmsg"></div>
+        <h3>商店 <span id="de-cans" class="cans">🥫 0</span></h3>
+        <div id="shop"></div>
+        <button id="btn-next" class="primary">下一天</button>
+      </div>
+    </div>
+  </div>
+  <footer id="foot">
+    <span id="combo-hint"></span>
+    <button id="btn-endday" class="ghost">收工</button>
+  </footer>
+</div>
+<script src="game.js"></script>
+</body>
+</html>
