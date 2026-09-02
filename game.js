@@ -366,7 +366,7 @@ function draw() {
   ctx.fillText(`${sh.name} · 臂力 ${sh.dmg[0] + lv('dmg')}–${sh.dmg[1] + lv('dmg')} · 手速 ${speed().toFixed(2)}/s · 铲面 ${(radiusPx() / PX_PER_UNIT).toFixed(1)} · 一铲到底 ${Math.round(critChance() * 100)}%（撸猫时）`, 36, 556);
   ctx.fillText(`今日工钱 ${fmt(D.haul)} · 撸 ${D.rubbed} 下 · 收 ${D.destroyed} 坨 · 扑空 ${D.misses} · 连撸 ${D.streak} · 连击 ${D.combo}${D.freezeT > 0 ? ' · ❄ 猫都睡了' : ''}`, 36, 578);
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '12px -apple-system,"PingFang SC",sans-serif';
-  ctx.fillText((ptr.type === 'touch' ? '手指按住跟着猫，自动撸' : '鼠标停在猫身上自动撸，撸到它拉') + ' · 光标是手就撸、是铲就铲 · 屎不收会被埋', 36, 604);
+  ctx.fillText((ptr.type === 'touch' ? '手指按住跟着猫，自动撸' : '鼠标停在猫身上自动撸，撸到它拉') + ' · 压到屎上才亮铲子 · 屎不收会被埋', 36, 604);
   if (D.over) { ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(0, 0, W, H); }
   ctx.restore();
 }
@@ -374,16 +374,17 @@ function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.a
 function drawShovel() {
   const r = radiusPx();
   ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(ptr.x, ptr.y, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-  if (intentAt(ptr.x, ptr.y) === 'rub') { drawHand(); return; } // 光标 = 下一下的意图：手=撸，铲=铲/空
+  const it = intentAt(ptr.x, ptr.y);
+  if (it !== 'scoop') { drawHand(it === 'rub'); return; } // 默认是手；只有压在屎上才亮出铲子
   ctx.save(); ctx.translate(ptr.x + 18, ptr.y - 18); ctx.rotate(-0.6 + D.swingAnim * 1.1);
   ctx.fillStyle = '#c9962c'; ctx.fillRect(-3, -46, 6, 46);
   ctx.fillStyle = '#9aa7b5'; roundRect(-14, -4, 28, 18, 5); ctx.fill(); ctx.strokeStyle = '#5c6b7a'; ctx.lineWidth = 1.5; ctx.stroke();
   ctx.fillStyle = 'rgba(0,0,0,.25)'; for (let i = -8; i <= 8; i += 8) ctx.fillRect(i - 1, 2, 2, 10);
   ctx.restore();
 }
-function drawHand() {
-  // 手掌贴着猫背来回撸：x 方向摆动；出手瞬间往下按 + 手指弯（挠）
-  const stroke = Math.sin(D.t * 9) * 9, press = D.swingAnim, curl = press * 0.9;
+function drawHand(rubbing) {
+  // 默认是空手；压在猫上时手掌贴着猫背来回撸：x 方向摆动；出手瞬间往下按 + 手指弯（挠）
+  const stroke = rubbing ? Math.sin(D.t * 9) * 9 : 0, press = rubbing ? D.swingAnim : 0, curl = press * 0.9;
   ctx.save(); ctx.translate(ptr.x + stroke, ptr.y - 6 + press * 4); ctx.rotate(-0.25 + Math.sin(D.t * 9) * 0.12);
   ctx.globalAlpha = 0.95;
   ctx.fillStyle = '#f6c9a0'; ctx.strokeStyle = '#c98b5e'; ctx.lineWidth = 1.5;
@@ -399,6 +400,7 @@ function drawHand() {
   // 拇指
   ctx.save(); ctx.rotate(0.9); ctx.beginPath(); roundRect(-3, -14, 6, 15, 3); ctx.fill(); ctx.stroke(); ctx.restore();
   ctx.restore();
+  if (!rubbing) return;
   // 撸的轨迹线
   ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 2; ctx.setLineDash([3, 4]);
   ctx.beginPath(); ctx.moveTo(ptr.x - 22, ptr.y + 14); ctx.quadraticCurveTo(ptr.x, ptr.y + 20, ptr.x + 22, ptr.y + 14); ctx.stroke(); ctx.setLineDash([]);
