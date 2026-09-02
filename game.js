@@ -1,4 +1,5 @@
-/* 屎必须铲 Poop Must Scoop — v0.2 换皮 demo
+/* 屎必须铲 Poop Must Scoop — v0.3 换皮 demo
+   钱的说法（方案 A）：上门铲屎按坨计费，主人付工钱；屎里没有钱。3% 档 = 猫屎咖啡彩蛋。
    系统与数值照《账单必须支付》(docs/BMBP_SYSTEM.md)，替换规则见 docs/RESKIN_MAP.md。
    标 [待核] 的数字 = 原作未查到，临时值，依据写在 RESKIN_MAP §10。 */
 (() => {
@@ -14,7 +15,7 @@ const fmt = n => '$' + Math.round(n).toLocaleString('en-US');
 let uid = 1;
 
 // ---------- 猫 = 存钱罐种类；屎 = 存钱罐实例 ----------
-// loot: 掉落档位 [概率, 低, 高]。大橘 = The Tourist（原作：HP 22；65% 8–13；3% 85–125；砸碎回体）
+// loot: 单价档位 [概率, 低, 高]（主人按坨付的工钱）。大橘 = The Tourist（原作：HP 22；65% 8–13；3% 85–125；砸碎回体）
 const CATS = {
   libua:  { name: '狸花', src: 'Normalito', emoji: '🐈', shape: 'swirl', color: '#6b3e1e', size: 1.0,
             hp: 8,  loot: [[0.65, 3, 5], [0.32, 6, 8], [0.03, 30, 45]], drift: true,  restore: 0, note: '[待核] HP/掉落按 Tourist 表等比缩 1/3' },
@@ -249,8 +250,8 @@ function destroyPoop(p) {
   D.poops = D.poops.filter(x => x.id !== p.id);
   puff(p.x, p.y, 10, p.color); puff(p.x, p.y, 8, '#e8d9b0');
   coins(p.x, p.y, Math.min(24, 3 + Math.floor(gain / 2)));
-  addFloat(p.x, p.y - 34, `+${fmt(gain)}`, tier === 2 ? '#ff9de2' : tier === 1 ? '#ffcc4d' : '#fff3b0', 15 + tier * 4);
-  if (tier === 2) { addFloat(p.x, p.y - 56, '大奖！', '#ff9de2', 20); D.shake = 8; SFX.win(); } else SFX.crack();
+  addFloat(p.x, p.y - 34, `+${fmt(gain)} 工钱`, tier === 2 ? '#ff9de2' : tier === 1 ? '#ffcc4d' : '#fff3b0', 15 + tier * 4);
+  if (tier === 2) { addFloat(p.x, p.y - 56, '☕ 猫屎咖啡！', '#ff9de2', 20); D.shake = 8; SFX.win(); } else SFX.crack();
   if (p.wasBuried) addFloat(p.x + 24, p.y - 20, '埋过·结块更大', '#c9b48a', 11);
   if (T.restore) { D.stamina = Math.min(maxStamina(), D.stamina + T.restore); addFloat(p.x, p.y - 12, `腰力 +${T.restore}`, '#7ee081', 13); }
 }
@@ -301,9 +302,9 @@ function draw() {
   ctx.fillStyle = 'rgba(255,255,255,.85)';
   const sh = shovel();
   ctx.fillText(`${sh.name} · 臂力 ${sh.dmg[0] + lv('dmg')}–${sh.dmg[1] + lv('dmg')} · 手速 ${speed().toFixed(2)}/s · 铲面 ${(radiusPx() / PX_PER_UNIT).toFixed(1)} · 一铲到底 ${Math.round(critChance() * 100)}%`, 36, 556);
-  ctx.fillText(`本局所得 ${fmt(D.haul)} · 铲了 ${D.hits} 下 · 连击 ${D.combo}${D.freezeT > 0 ? ' · ❄ 猫都睡了' : ''}`, 36, 578);
+  ctx.fillText(`今日工钱 ${fmt(D.haul)} · 铲了 ${D.hits} 下 · 连击 ${D.combo}${D.freezeT > 0 ? ' · ❄ 猫都睡了' : ''}`, 36, 578);
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '12px -apple-system,"PingFang SC",sans-serif';
-  ctx.fillText((ptr.type === 'touch' ? '手指按住拖到屎上，自动铲' : '鼠标移到屎上，自动铲 · 不用点') + ' · 猫埋住的屎要挖，但结块更大', 36, 604);
+  ctx.fillText((ptr.type === 'touch' ? '手指按住拖到屎上，自动铲' : '鼠标移到屎上，自动铲 · 不用点') + ' · 主人按坨付工钱，埋住的要挖但结块更大', 36, 604);
   if (D.over) { ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(0, 0, W, H); }
   ctx.restore();
 }
@@ -404,9 +405,9 @@ function renderSettle() {
   $('de-title').textContent = `第 ${S.run.day} 天 · 收工`;
   const done = S.run.billIdx >= BILLS.length;
   const b = curBill(); const canPay = !done && S.run.cash >= b.amt;
-  let html = `<div class="summary"><div>本局所得 <b>${fmt(D.haul)}</b></div><div>存款 <b>${fmt(S.run.cash)}</b></div><div>铲了 <b>${D.hits}</b> 下 · 暴击 <b>${D.critCount}</b></div><div>铲净 <b>${D.destroyed}</b> 坨 · 连击 <b>${D.combo}</b></div></div>`;
+  let html = `<div class="summary"><div>今日工钱 <b>${fmt(D.haul)}</b></div><div>存款 <b>${fmt(S.run.cash)}</b></div><div>铲了 <b>${D.hits}</b> 下 · 暴击 <b>${D.critCount}</b></div><div>铲净 <b>${D.destroyed}</b> 坨 · 连击 <b>${D.combo}</b></div></div>`;
   // 赌局
-  if (!D.gambled && !D.spent && D.haul > 0 && S.run.cash >= D.haul) html += `<div class="sect"><div class="sect-t">🪙 猫推硬币 <span class="sub">Double or Nothing · 押本局所得 ${fmt(D.haul)} · 50/50</span></div><button class="ghost" id="btn-flip">让猫推一下</button></div>`;
+  if (!D.gambled && !D.spent && D.haul > 0 && S.run.cash >= D.haul) html += `<div class="sect"><div class="sect-t">🪙 猫推硬币 <span class="sub">Double or Nothing · 押今日工钱 ${fmt(D.haul)} · 50/50</span></div><button class="ghost" id="btn-flip">让猫推一下</button></div>`;
   else if (D.gambleMsg) html += `<div class="sect"><div class="sect-t">${D.gambleMsg}</div></div>`;
   if (D.unlockMsg) html += `<div class="sect"><div class="sect-t">🐾 ${D.unlockMsg}</div></div>`;
   // 账单
@@ -437,7 +438,7 @@ function renderSettle() {
     const win = Math.random() < 0.5;
     if (win) { S.run.cash += D.haul; if (hasPerk('house')) S.run.nextMult = 1.5; SFX.win(); }
     else { S.run.cash -= D.haul; if (hasPerk('lucky')) S.run.nextLuck = 1; SFX.bad(); }
-    D.gambled = true; D.gambleMsg = win ? `🪙 正面！本局所得翻倍 → +${fmt(D.haul)}${hasPerk('house') ? ' · 手气顺：下局 ×1.5' : ''}` : `🪙 反面…本局所得归零 −${fmt(D.haul)}${hasPerk('lucky') ? ' · 否极泰来：下局 100% 幸运' : ''}`;
+    D.gambled = true; D.gambleMsg = win ? `🪙 正面！今日工钱翻倍 → +${fmt(D.haul)}${hasPerk('house') ? ' · 手气顺：下局 ×1.5' : ''}` : `🪙 反面…今日工钱归零 −${fmt(D.haul)}${hasPerk('lucky') ? ' · 否极泰来：下局 100% 幸运' : ''}`;
     save(); renderSettle(); hud();
   };
   const pay = $('btn-pay'); if (pay) pay.onclick = payBill;
