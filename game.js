@@ -121,13 +121,15 @@ const STAMINA_BASE = 60, STAMINA_PER_SWING = 1, MOVE_DRAIN = 0.5, TIME_DRAIN = 0
 const SPAWN_BASE = 4.0, START_CATS = 3; // [待核]：场上猫数 = 开局猫数节点；猫拉完就走，按间隔补新猫
 // 埋屎 = 原作「猪会跑」的换皮：屎不长腿，但会被猫扒砂盖住。三个数都是 [待核]
 const BURY_TIME = 3.0, SAND_HP_RATIO = 0.5, BURIED_TIER_UP = 1;
+// 猫拉屎不让人看：手压在它身上它就憋着，手离开读条才走。POOP_TIME/WATCH_MARGIN [待核]
+const POOP_TIME = 2.0, WATCH_MARGIN = 40;
 const TRAY = { x: 20, y: 70, w: 440, h: 400 };
 
 // ---------- 存档 ----------
 const freshRun = () => ({ cash: 0, day: 1, billIdx: 0, billDue: BILLS[0].due, paidTotal: 0, tree: {}, shovel: 0, perks: [], unlocked: ['libua'], earlyDays: 0, nextMult: 1, nextLuck: 0, catXp: {} });
-const freshSave = () => ({ cycle: 1, lp: 0, rings: [], run: freshRun(), stats: { bankrupt: 0, paid: 0, best: 0 } });
+const freshSave = () => ({ cycle: 1, lp: 0, rings: [], run: freshRun(), stats: { bankrupt: 0, paid: 0, best: 0 }, tut: { done: false, step: null, seen: {} } });
 let S = freshSave();
-function load() { try { const d = JSON.parse(localStorage.getItem(SAVE_KEY)); if (d && d.run) { S = Object.assign(freshSave(), d); S.run = Object.assign(freshRun(), d.run); S.stats = Object.assign(freshSave().stats, d.stats || {}); if (!Array.isArray(S.run.unlocked) || !S.run.unlocked.length) S.run.unlocked = ['libua']; if (!S.run.catXp) S.run.catXp = {}; return true; } } catch (e) {} return false; }
+function load() { try { const d = JSON.parse(localStorage.getItem(SAVE_KEY)); if (d && d.run) { S = Object.assign(freshSave(), d); S.run = Object.assign(freshRun(), d.run); S.stats = Object.assign(freshSave().stats, d.stats || {}); if (!Array.isArray(S.run.unlocked) || !S.run.unlocked.length) S.run.unlocked = ['libua']; if (!S.run.catXp) S.run.catXp = {}; if (!S.tut) S.tut = { done: true, step: null, seen: {} }; /* 旧档默认跳过教学 */ return true; } } catch (e) {} return false; }
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 
 // ---------- 派生 ----------
@@ -176,7 +178,8 @@ function newRun(real) {
   D = { t: 0, stamina: maxStamina(), poops: [], cats: [], parts: [], floats: [], haul: 0, hits: 0, combo: 0, streak: 0, swingCd: 0, swingAnim: 0, freezeT: 0, freezeChance: 0, gambled: false, gambleMsg: '', spent: false, unlockMsg: '', pending: null, spawnT: spawnInterval() * 0.5, over: false, endT: 0, shake: 0, critCount: 0, destroyed: 0, rubbed: 0, misses: 0, multiScoop: 0, byCat: {}, coins: { 1: 0, 5: 0, 25: 0, 100: 0 }, settleView: 'summary', settleTab: 'tree' };
   // 复利：每局开始按存款 5%（只在真正开局发，预览不发）
   if (real && hasPerk('interest') && S.run.cash > 0) { const g = Math.round(S.run.cash * 0.05); S.run.cash += g; addFloat(240, 120, `复利 +${fmt(g)}`, '#ffcc4d', 16); }
-  for (let i = 0; i < catCap(); i++) spawnCat(pick(S.run.unlocked));
+  const n = (!S.tut.done && S.cycle === 1 && S.run.day === 1) ? 1 : catCap();
+  for (let i = 0; i < n; i++) spawnCat(pick(S.run.unlocked));
 }
 const catCap = () => START_CATS + lv('start');
 function spawnCat(type) {
@@ -197,13 +200,16 @@ function updateCats(dt) {
       c.timer -= dt;
       if (T.move === 'slow' && c.timer <= 0) { if (Math.random() < 0.4) { c.dir = { x: 0, y: 0 }; c.timer = rnd(0.8, 2); } else { const a = rnd(0, Math.PI * 2); c.dir = { x: Math.cos(a), y: Math.sin(a) }; c.timer = rnd(1, 2.5); } }
       if (T.move === 'loco' && c.timer <= 0) { if (Math.random() < 0.25) { c.dir = { x: 0, y: 0 }; c.timer = rnd(0.3, 0.7); } else { const a = rnd(0, Math.PI * 2); c.dir = { x: Math.cos(a), y: Math.sin(a) }; c.timer = rnd(0.2, 0.5); } }
+      if (tutFirstScoopPending()) c.dir = { x: 0, y: 0 };
       if (c.dir.x || c.dir.y) {
         c.x += c.dir.x * T.speed * dt; c.y += c.dir.y * T.speed * dt;
         const bx = clamp(c.x, TRAY.x + 30, TRAY.x + TRAY.w - 30), by = clamp(c.y, TRAY.y + 40, TRAY.y + TRAY.h - 30);
         if (bx !== c.x || by !== c.y) { c.x = bx; c.y = by; c.dir = { x: -c.dir.x, y: -c.dir.y }; }
       }
     } else if (c.state === 'squat') {
-      c.timer -= dt;
+      const handHere = ptr.inside && (ptr.down || ptr.type !== 'touch') && dist(ptr.x, ptr.y, c.x, c.y) <= radiusPx() + WATCH_MARGIN;
+      c.watched = handHere;
+      if (!handHere) c.timer -= dt; // 有人看着就憋着，读条暂停不倒退
       if (c.timer <= 0) {
         const p = mkPoop(T, c.type, c.x, c.y); D.poops.push(p); c.poop = p; c.state = 'bury'; c.timer = BURY_TIME;
         puff(c.x, c.y, 6, T.color); SFX.crack();
@@ -269,8 +275,8 @@ function resolveRub(x, y, lock) {
     const T = CATS[c.type];
     c.hitOnce = true; c.hp -= dmg; c.squash = 1; c.showHpT = 0.7; D.rubbed++;
     hearts(c.x, c.y - 20, isCrit ? 5 : 2);
-    addFloat(c.x + rnd(-10, 10), c.y - 34, `${isCrit ? '一铲到底 ' : ''}${T.verb} -${dmg}`, isCrit ? '#ffcc4d' : '#fff', isCrit ? 16 : 13);
-    if (c.hp <= 0) { c.hp = 0; c.state = 'squat'; c.timer = 0.8; c.dir = { x: 0, y: 0 }; addFloat(c.x, c.y - 52, '要拉了…', '#ffe08a', 15); SFX.purr(); }
+    if (isCrit) addFloat(c.x + rnd(-10, 10), c.y - 34, `一铲到底 ${T.verb} -${dmg}`, '#ffcc4d', 16); // 普通撸只看便意数字，少飘字
+    if (c.hp <= 0) { c.hp = 0; c.state = 'squat'; c.timer = POOP_TIME; c.dir = { x: 0, y: 0 }; addFloat(c.x, c.y - 52, '要拉了…走开点', '#ffe08a', 15); SFX.purr(); }
   }
   SFX.rub();
 }
@@ -329,7 +335,8 @@ function update(dt) {
   if (!D.over) {
     D.stamina -= TIME_DRAIN * drainMult() * dt; // 时间一直在走，腰越弯越酸
     updateCats(dt); updatePoops(dt); updateSwing(dt);
-    D.spawnT -= dt; if (D.spawnT <= 0) { D.spawnT = spawnInterval(); if (D.cats.length < catCap()) spawnCat(pick(S.run.unlocked)); }
+    D.spawnT -= dt; if (D.spawnT <= 0) { D.spawnT = spawnInterval(); if (D.cats.length < (tutFirstScoopPending() ? 1 : catCap())) spawnCat(pick(S.run.unlocked)); }
+    updateTut();
     if (D.stamina <= 0 && !D.pending && D.endT <= 0) { D.stamina = 0; D.endT = 0.8; }
     if (D.endT > 0) { D.endT -= dt; if (D.endT <= 0) endRun(); }
   }
@@ -353,6 +360,7 @@ function draw() {
   items.sort((a, b) => a.y - b.y).forEach(i => i.f());
   drawParticles();
   for (const f of D.floats) { ctx.globalAlpha = clamp(f.life * 1.5, 0, 1); ctx.font = `700 ${f.size}px -apple-system,"PingFang SC",sans-serif`; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.strokeText(f.txt, f.x, f.y); ctx.fillStyle = f.color; ctx.fillText(f.txt, f.x, f.y); ctx.globalAlpha = 1; }
+  drawTut();
   if (ptr.inside && !D.over) drawShovel();
   // 底部信息条
   ctx.fillStyle = 'rgba(0,0,0,.35)'; roundRect(20, 486, 440, 134, 14); ctx.fill();
@@ -457,6 +465,12 @@ function drawCat(c) {
   ctx.restore();
   ctx.font = '10px -apple-system,"PingFang SC",sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillText(T.name, 0, 26);
   if (c.state === 'bury') { ctx.font = '11px -apple-system,"PingFang SC",sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText(`埋… ${Math.ceil(c.timer)}`, 0, -34); }
+  if (c.state === 'squat') { // 拉屎读条：只有没人看才走
+    const prog = 1 - c.timer / POOP_TIME;
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; roundRect(-20, -32, 40, 7, 3); ctx.fill();
+    ctx.fillStyle = c.watched ? '#888' : '#8a4b1c'; roundRect(-20, -32, 40 * prog, 7, 3); ctx.fill();
+    ctx.font = '11px -apple-system,"PingFang SC",sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText(c.watched ? '👀 等你走开' : '拉着…', 0, -38);
+  }
   if (c.state === 'roam' && c.hp < c.maxhp) { // 便意条：越满越要拉
     ctx.fillStyle = 'rgba(0,0,0,.45)'; roundRect(-18, -28, 36, 6, 3); ctx.fill();
     ctx.fillStyle = '#b8760f'; roundRect(-18, -28, 36 * (1 - c.hp / c.maxhp), 6, 3); ctx.fill();
@@ -474,6 +488,48 @@ function drawParticles() {
     else { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
   }
   ctx.globalAlpha = 1;
+}
+
+// ---------- 教学：第 1 天教撸/走开/铲，第 2 天教扑空/埋屎/一铲多坨（教学就是 demo 的前两天） ----------
+// 每步：day 哪一天  when=进入条件  done=完成条件  text  target=箭头指向  effect=进入时做什么
+const TUT_STEPS = [
+  { id: 'rub',   day: 1, when: () => true,                                   done: () => D.cats.some(c => c.state !== 'roam'), text: '把手放到猫身上，它自己会被撸。\n头顶的便意条满了，它就要拉。', target: () => D.cats[0] },
+  { id: 'leave', day: 1, when: () => D.cats.some(c => c.state === 'squat'),  done: () => D.poops.length > 0, text: '它蹲下了。猫拉屎不让人看，\n把手挪开，读条才走。', target: () => D.cats.find(c => c.state === 'squat') },
+  { id: 'scoop', day: 1, when: () => D.poops.length > 0,                     done: () => D.destroyed > 0, text: '拉了！压到屎上，铲子自动出来。\n3 秒内收走，不然它会埋起来。', target: () => D.poops[0] },
+  { id: 'free',  day: 1, when: () => D.destroyed > 0,                        done: () => D.t - (D.tutT || 0) > 5, text: '会了。腰力一直在掉，直不起腰当天收工。\n多撸几只，收工付水费。', target: () => null, effect: () => { D.tutT = D.t; while (D.cats.length < catCap()) spawnCat(pick(S.run.unlocked)); } },
+  { id: 'loco',  day: 2, when: () => D.cats.some(c => c.type === 'siam'),    done: () => D.misses > 0 || D.t - (D.tutT || 0) > 8, text: '新来的暹罗会乱窜。出手有前摇，\n它跑了就扑空，连击归零。第一下必中。', target: () => D.cats.find(c => c.type === 'siam'), effect: () => { D.tutT = D.t; } },
+  { id: 'bury',  day: 2, when: () => D.poops.some(p => p.buried),            done: () => !D.poops.some(p => p.buried), text: '埋起来了。看苍蝇找它，\n挖开要多几下，但结块更大。', target: () => D.poops.find(p => p.buried) },
+  { id: 'multi', day: 2, when: () => D.poops.filter(p => !p.buried).length >= 2, done: () => D.multiScoop > 0 || D.t - (D.tutT || 0) > 6, text: '两坨挨着，把铲面同时压住，一铲收两坨。', target: () => D.poops.find(p => !p.buried), effect: () => { D.tutT = D.t; } },
+];
+const tutActive = () => !S.tut.done && S.cycle === 1 && S.run.day <= 2;
+const tutStep = () => TUT_STEPS.find(t => t.id === S.tut.step);
+function updateTut() {
+  if (!tutActive() || !D || D.over) return;
+  const cur = tutStep();
+  if (cur && cur.done()) { S.tut.seen[cur.id] = true; S.tut.step = null; }
+  if (!S.tut.step) { const next = TUT_STEPS.find(t => t.day === S.run.day && !S.tut.seen[t.id] && t.when()); if (next) { S.tut.step = next.id; if (next.effect) next.effect(); SFX.ui(); } }
+}
+function drawTut() {
+  if (!tutActive() || !D || D.over) return;
+  const cur = tutStep(); if (!cur) return;
+  const lines = cur.text.split('\n');
+  const bw = 400, bh = 24 + lines.length * 20, bx = 40, by = 84;
+  ctx.fillStyle = 'rgba(20,14,8,.9)'; roundRect(bx, by, bw, bh, 12); ctx.fill();
+  ctx.strokeStyle = '#ffcc4d'; ctx.lineWidth = 2; roundRect(bx, by, bw, bh, 12); ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.font = '700 14px -apple-system,"PingFang SC",sans-serif'; ctx.textAlign = 'left';
+  lines.forEach((l, i) => ctx.fillText(l, bx + 14, by + 24 + i * 20));
+  const todays = TUT_STEPS.filter(t => t.day === S.run.day);
+  ctx.fillStyle = '#ffcc4d'; ctx.font = '11px -apple-system,"PingFang SC",sans-serif'; ctx.textAlign = 'right'; ctx.fillText(`教学 ${todays.indexOf(cur) + 1}/${todays.length}`, bx + bw - 10, by + bh - 7);
+  const tg = cur.target(); if (!tg) return;
+  const pulse = 1 + Math.sin(D.t * 6) * 0.12;
+  ctx.strokeStyle = '#ffcc4d'; ctx.lineWidth = 3; ctx.setLineDash([6, 5]); ctx.beginPath(); ctx.arc(tg.x, tg.y, 34 * pulse, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.font = '26px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#000'; ctx.fillText('👇', tg.x, tg.y - 44 - Math.sin(D.t * 6) * 4);
+}
+const tutFirstScoopPending = () => tutActive() && S.run.day === 1 && D.destroyed === 0; // 教学第一坨收走前：只 1 只猫、不动
+function tutSettleTip() {
+  if (!tutActive()) return '';
+  if (S.run.day === 1) return S.run.billIdx === 0 ? '收工了。水费 $20 今天到期，先点「支付账单」付掉。逾期就破产。' : '付清一张账单会送三选一 perk，本周目一直生效。剩下的钱进「升级」，技能树从臂力开始往外长。';
+  return '两天教学结束。之后每天：撸满 → 走开 → 回来铲 → 收工付账单。账单越来越大，付不出就破产，破产拿传承点买戒指再来。';
 }
 
 // ---------- HUD ----------
@@ -509,6 +565,7 @@ function renderSettle() {
   $('de-title').textContent = D.settleView === 'summary' ? '腰酸了！' : ({ bill: '账单', tree: '技能树', shop: '商店', codex: '猫图鉴' })[D.settleTab];
   $('de-cash').textContent = fmt(S.run.cash);
   let html = '';
+  const tip = tutSettleTip(); if (tip) html += `<div class="tuttip">🎓 ${tip}</div>`;
   if (D.settleView === 'summary') {
     const acc = D.hits + D.misses ? Math.round(D.hits / (D.hits + D.misses) * 100) : 100;
     const coinTotal = Object.values(D.coins).reduce((a, n) => a + n, 0);
@@ -620,6 +677,7 @@ function payBill() {
   $('perkpick').classList.remove('hidden');
 }
 function nextDay() {
+  if (tutActive() && S.run.day >= 2) S.tut.done = true;
   S.run.day++;
   if (S.run.billDue > 0) S.run.billDue--;
   startRun();
