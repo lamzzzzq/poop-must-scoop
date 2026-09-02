@@ -223,45 +223,48 @@ function updateCats(dt) {
 function updatePoops(dt) { for (const p of D.poops) p.squash = Math.max(0, p.squash - dt * 6); }
 
 // ---------- 悬停自动撸 / 铲 ----------
+// 规则（GDD §3）：出手那一刻定意图，中途不变。
+//   意图 = 铲面里离鼠标中心最近的对象：猫 → 撸（有前摇，猫跑了=扑空，绝不变成铲）；屎 → 铲（无前摇，出手即收，不可能扑空）；空 → 不出手
 const catHit = (c, x, y, r) => c.state === 'roam' && dist(x, y, c.x, c.y) <= r + 16;
 const poopHit = (p, x, y, r) => dist(x, y, p.x, p.y) <= r + 8 * p.size;
+function intentAt(x, y) {
+  const r = radiusPx();
+  let best = null, bd = 1e9;
+  for (const c of D.cats) if (catHit(c, x, y, r)) { const d = dist(x, y, c.x, c.y); if (d < bd) { bd = d; best = 'rub'; } }
+  for (const p of D.poops) if (poopHit(p, x, y, r)) { const d = dist(x, y, p.x, p.y); if (d < bd) { bd = d; best = 'scoop'; } }
+  return best;
+}
 function updateSwing(dt) {
   D.swingCd -= dt; D.swingAnim = Math.max(0, D.swingAnim - dt * 6);
   const active = ptr.inside && (ptr.down || ptr.type !== 'touch');
   if (!active || D.over) return;
   if (ptr.moved) { D.stamina -= MOVE_DRAIN * drainMult() * dt; ptr.moved = false; }
-  if (D.pending) { D.pending.t -= dt; if (D.pending.t <= 0) { const h = D.pending; D.pending = null; resolveSwing(h.x, h.y, h.lock); } }
+  if (D.pending) { D.pending.t -= dt; if (D.pending.t <= 0) { const h = D.pending; D.pending = null; resolveRub(h.x, h.y, h.lock); } }
   if (D.swingCd > 0 || D.pending) return;
-  const r = radiusPx();
-  const cats = D.cats.filter(c => catHit(c, ptr.x, ptr.y, r)), poops = D.poops.filter(p => poopHit(p, ptr.x, ptr.y, r));
-  if (!cats.length && !poops.length) return;
+  const intent = intentAt(ptr.x, ptr.y);
+  if (!intent) return;
   if (D.stamina <= 0) return;
   const iv = 1 / speed();
   D.swingCd = iv; D.swingAnim = 1;
   D.stamina -= STAMINA_PER_SWING * drainMult();
   if (hasPerk('recover')) D.stamina = Math.min(maxStamina(), D.stamina + 1);
-  // 首撸必中（El Loco）：出手时锁定还没被撸过的乱窜猫
-  const lock = cats.filter(c => CATS[c.type].firstHit && !c.hitOnce).map(c => c.id);
-  D.pending = { x: ptr.x, y: ptr.y, t: iv * 0.35, lock }; // [待核] 前摇占间隔 35%
+  if (intent === 'scoop') { resolveScoop(ptr.x, ptr.y); return; } // 铲：无前摇
+  const r = radiusPx();
+  const lock = D.cats.filter(c => catHit(c, ptr.x, ptr.y, r) && CATS[c.type].firstHit && !c.hitOnce).map(c => c.id); // 首撸必中（El Loco）
+  D.pending = { x: ptr.x, y: ptr.y, t: iv * 0.35, lock }; // 撸：前摇 [待核] 占间隔 35%
 }
-function resolveSwing(x, y, lock) {
+// 撸：一铲到底 / 连击 / 精准度 / 连带铲 都在这里
+function resolveRub(x, y, lock) {
   const r = radiusPx();
   const cats = D.cats.filter(c => c.state === 'roam' && (catHit(c, x, y, r) || (lock.includes(c.id) && !c.hitOnce)));
-  const poops = D.poops.filter(p => poopHit(p, x, y, r));
-  if (!cats.length && !poops.length) { D.streak = 0; D.misses++; puff(x, y, 5, '#e8d9b0'); addFloat(x, y - 20, '扑空', '#ddd', 12); SFX.miss(); return; }
-  // 一铲到底（暴击）/ 连击 / 精准度：只针对猫。收屎不计、不断（原作：暴击连击都是砸猪的事，捡币没有）
-  let isCrit = false, dmg = 0;
-  if (cats.length) {
-    D.hits++; D.streak++;
-    if (D.streak % 10 === 0) { D.combo++; addFloat(x, y - 50, `连击 ${D.combo}`, '#ffcc4d', 18); }
-    if (hasPerk('freeze')) { D.freezeChance += 0.01; if (Math.random() < D.freezeChance) { D.freezeT = 2.5; D.freezeChance = 0; addFloat(240, 110, '猫都睡了 · 2.5s', '#9fd8ff', 16); } }
-    isCrit = Math.random() < critChance();
-    dmg = dmgRoll(); if (isCrit) dmg = Math.round(dmg * critMult());
-    if (cats.length >= 2 && lv('coll')) { dmg = Math.round(dmg * (1 + 0.25 * lv('coll'))); addFloat(x, y - 64, `连带 ×${(1 + 0.25 * lv('coll')).toFixed(2)}`, '#ffb3a7', 12); }
-  }
-  if (poops.length >= 2) { D.multiScoop++; addFloat(x, y - 62, `一铲 ${poops.length} 坨`, '#ffe08a', 14); }
-  if (isCrit) { D.critCount++; SFX.crit(); D.shake = 4; if (hasPerk('critgold')) { D.haul += 1; addFloat(x + 16, y - 40, '+$1', '#ffcc4d', 12); } }
-  // 铲面之内的猫全部吃到（原作范围=面）
+  if (!cats.length) { D.streak = 0; D.misses++; puff(x, y, 5, '#e8d9b0'); addFloat(x, y - 20, '扑空', '#ddd', 12); SFX.miss(); return; }
+  D.hits++; D.streak++;
+  if (D.streak % 10 === 0) { D.combo++; addFloat(x, y - 50, `连击 ${D.combo}`, '#ffcc4d', 18); }
+  if (hasPerk('freeze')) { D.freezeChance += 0.01; if (Math.random() < D.freezeChance) { D.freezeT = 2.5; D.freezeChance = 0; addFloat(240, 110, '猫都睡了 · 2.5s', '#9fd8ff', 16); } }
+  const isCrit = Math.random() < critChance();
+  let dmg = dmgRoll(); if (isCrit) dmg = Math.round(dmg * critMult());
+  if (cats.length >= 2 && lv('coll')) { dmg = Math.round(dmg * (1 + 0.25 * lv('coll'))); addFloat(x, y - 64, `连带 ×${(1 + 0.25 * lv('coll')).toFixed(2)}`, '#ffb3a7', 12); }
+  if (isCrit) { D.critCount++; SFX.crit(); D.shake = 4; coins(x, y, 3); if (hasPerk('critgold')) { D.haul += 1; addFloat(x + 16, y - 40, '+$1', '#ffcc4d', 12); } }
   for (const c of cats) {
     const T = CATS[c.type];
     c.hitOnce = true; c.hp -= dmg; c.squash = 1; c.showHpT = 0.7; D.rubbed++;
@@ -269,10 +272,17 @@ function resolveSwing(x, y, lock) {
     addFloat(c.x + rnd(-10, 10), c.y - 34, `${isCrit ? '一铲到底 ' : ''}${T.verb} -${dmg}`, isCrit ? '#ffcc4d' : '#fff', isCrit ? 16 : 13);
     if (c.hp <= 0) { c.hp = 0; c.state = 'squat'; c.timer = 0.8; c.dir = { x: 0, y: 0 }; addFloat(c.x, c.y - 52, '要拉了…', '#ffe08a', 15); SFX.purr(); }
   }
-  if (cats.length) SFX.rub();
+  SFX.rub();
+}
+// 铲：铲面里所有屎一起收，鼓包一起挖一层。不算命中/失误，不吃暴击
+function resolveScoop(x, y) {
+  const r = radiusPx();
+  const poops = D.poops.filter(p => poopHit(p, x, y, r));
+  if (poops.length >= 2) { D.multiScoop++; addFloat(x, y - 62, `一铲 ${poops.length} 坨`, '#ffe08a', 14); }
+  const dig = dmgRoll();
   for (const p of poops) {
     if (p.buried) {
-      const dig = dmg || dmgRoll(); p.hp -= dig; p.squash = 1; puff(p.x, p.y, 5, '#e8d9b0');
+      p.hp -= dig; p.squash = 1; puff(p.x, p.y, 5, '#e8d9b0');
       addFloat(p.x + rnd(-10, 10), p.y - 24, `挖 -${dig}`, '#f3ead6', 13);
       if (p.hp <= 1) { p.buried = false; p.hp = 1; addFloat(p.x, p.y - 40, '挖出来了！', '#ffcc4d', 16); puff(p.x, p.y, 14, '#e8d9b0'); SFX.crack(); }
     } else destroyPoop(p);
@@ -356,7 +366,7 @@ function draw() {
   ctx.fillText(`${sh.name} · 臂力 ${sh.dmg[0] + lv('dmg')}–${sh.dmg[1] + lv('dmg')} · 手速 ${speed().toFixed(2)}/s · 铲面 ${(radiusPx() / PX_PER_UNIT).toFixed(1)} · 一铲到底 ${Math.round(critChance() * 100)}%（撸猫时）`, 36, 556);
   ctx.fillText(`今日工钱 ${fmt(D.haul)} · 撸 ${D.rubbed} 下 · 收 ${D.destroyed} 坨 · 扑空 ${D.misses} · 连撸 ${D.streak} · 连击 ${D.combo}${D.freezeT > 0 ? ' · ❄ 猫都睡了' : ''}`, 36, 578);
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '12px -apple-system,"PingFang SC",sans-serif';
-  ctx.fillText((ptr.type === 'touch' ? '手指按住跟着猫，自动撸' : '鼠标停在猫身上自动撸，撸到它拉') + ' · 屎一铲收工钱 · 不收会被埋', 36, 604);
+  ctx.fillText((ptr.type === 'touch' ? '手指按住跟着猫，自动撸' : '鼠标停在猫身上自动撸，撸到它拉') + ' · 光标是手就撸、是铲就铲 · 屎不收会被埋', 36, 604);
   if (D.over) { ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(0, 0, W, H); }
   ctx.restore();
 }
@@ -364,8 +374,7 @@ function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.a
 function drawShovel() {
   const r = radiusPx();
   ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(ptr.x, ptr.y, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-  const overCat = D.cats.some(c => c.state !== 'bury' && dist(ptr.x, ptr.y, c.x, c.y) <= r + 16);
-  if (overCat) { drawHand(); return; }
+  if (intentAt(ptr.x, ptr.y) === 'rub') { drawHand(); return; } // 光标 = 下一下的意图：手=撸，铲=铲/空
   ctx.save(); ctx.translate(ptr.x + 18, ptr.y - 18); ctx.rotate(-0.6 + D.swingAnim * 1.1);
   ctx.fillStyle = '#c9962c'; ctx.fillRect(-3, -46, 6, 46);
   ctx.fillStyle = '#9aa7b5'; roundRect(-14, -4, 28, 18, 5); ctx.fill(); ctx.strokeStyle = '#5c6b7a'; ctx.lineWidth = 1.5; ctx.stroke();
