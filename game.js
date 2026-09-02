@@ -86,10 +86,10 @@ const SPAWN_BASE = 4.0, START_POOPS = 3; // [待核]
 const TRAY = { x: 20, y: 70, w: 440, h: 400 };
 
 // ---------- 存档 ----------
-const freshRun = () => ({ cash: 0, day: 1, billIdx: 0, billDue: BILLS[0].due, paidTotal: 0, tree: {}, shovel: 0, perks: [], unlocked: ['libua'], earlyDays: 0, savedByFriend: false, nextMult: 1, nextLuck: 0 });
+const freshRun = () => ({ cash: 0, day: 1, billIdx: 0, billDue: BILLS[0].due, paidTotal: 0, tree: {}, shovel: 0, perks: [], unlocked: ['libua'], earlyDays: 0, nextMult: 1, nextLuck: 0 });
 const freshSave = () => ({ cycle: 1, lp: 0, rings: [], run: freshRun(), stats: { bankrupt: 0, paid: 0, best: 0 } });
 let S = freshSave();
-function load() { try { const d = JSON.parse(localStorage.getItem(SAVE_KEY)); if (d && d.run) { S = Object.assign(freshSave(), d); return true; } } catch (e) {} return false; }
+function load() { try { const d = JSON.parse(localStorage.getItem(SAVE_KEY)); if (d && d.run) { S = Object.assign(freshSave(), d); S.run = Object.assign(freshRun(), d.run); S.stats = Object.assign(freshSave().stats, d.stats || {}); if (!Array.isArray(S.run.unlocked) || !S.run.unlocked.length) S.run.unlocked = ['libua']; return true; } } catch (e) {} return false; }
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 
 // ---------- 派生 ----------
@@ -129,13 +129,13 @@ const SFX = {
 const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
 function resize() { const dpr = Math.min(window.devicePixelRatio || 1, 2); cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
 resize(); window.addEventListener('resize', resize);
-let D = null, running = false, lastT = 0;
-const ptr = { x: 240, y: 300, down: false, inside: false, moved: false };
+let D = null, lastT = 0;
+const ptr = { x: 240, y: 300, down: false, inside: false, moved: false, type: 'mouse' };
 
-function newRun() {
-  D = { t: 0, stamina: maxStamina(), poops: [], cats: [], parts: [], floats: [], haul: 0, hits: 0, combo: 0, streak: 0, swingCd: 0, swingAnim: 0, freezeT: 0, freezeChance: 0, gambled: false, gambleMsg: '', spawnT: spawnInterval() * 0.5, over: false, endT: 0, shake: 0, hitCount: 0, critCount: 0, destroyed: 0 };
+function newRun(real) {
+  D = { t: 0, stamina: maxStamina(), poops: [], cats: [], parts: [], floats: [], haul: 0, hits: 0, combo: 0, streak: 0, swingCd: 0, swingAnim: 0, freezeT: 0, freezeChance: 0, gambled: false, gambleMsg: '', spent: false, unlockMsg: '', pending: null, spawnT: spawnInterval() * 0.5, over: false, endT: 0, shake: 0, hitCount: 0, critCount: 0, destroyed: 0 };
   // 复利：每局开始按存款 5%
-  if (hasPerk('interest') && S.run.cash > 0) { const g = Math.round(S.run.cash * 0.05); S.run.cash += g; addFloat(240, 120, `复利 +${fmt(g)}`, '#ffcc4d', 16); }
+  if (real && hasPerk('interest') && S.run.cash > 0) { const g = Math.round(S.run.cash * 0.05); S.run.cash += g; addFloat(240, 120, `复利 +${fmt(g)}`, '#ffcc4d', 16); }
   for (let i = 0; i < START_POOPS + lv('start'); i++) spawnPoop(pick(S.run.unlocked), true);
 }
 function spawnPoop(type, instant) {
@@ -149,6 +149,7 @@ function spawnPoop(type, instant) {
 function mkPoop(T, type, x, y) { return { id: uid++, type, x, y, hp: T.hp, maxhp: T.hp, shape: T.shape, color: T.color, size: T.size, driftT: rnd(1, 3), squash: 0 }; }
 
 function updateCats(dt) {
+  if (D.freezeT > 0) return;
   for (const c of D.cats) {
     c.wob += dt * 8;
     if (c.state === 'in') { const d = dist(c.x, c.y, c.tx, c.ty); const st = Math.min(d, 140 * dt); if (d < 2) { c.state = 'squat'; c.timer = 0.8; } else { c.x += (c.tx - c.x) / d * st; c.y += (c.ty - c.y) / d * st; } }
@@ -158,10 +159,10 @@ function updateCats(dt) {
   D.cats = D.cats.filter(c => !c.dead);
 }
 function updatePoops(dt) {
-  if (D.freezeT > 0) { D.freezeT -= dt; return; }
+  if (D.freezeT > 0) D.freezeT -= dt;
   for (const p of D.poops) {
     p.squash = Math.max(0, p.squash - dt * 6);
-    if (!CATS[p.type].drift) continue;
+    if (!CATS[p.type].drift || D.freezeT > 0) continue;
     p.driftT -= dt;
     if (p.driftT <= 0) { // 猫刨砂：屎被踢一下
       p.driftT = rnd(1.5, 3.5);
@@ -175,46 +176,53 @@ function updatePoops(dt) {
 // ---------- 悬停自动铲 ----------
 function updateSwing(dt) {
   D.swingCd -= dt; D.swingAnim = Math.max(0, D.swingAnim - dt * 6);
-  const active = ptr.inside && (ptr.down || !('ontouchstart' in window));
+  const active = ptr.inside && (ptr.down || ptr.type !== 'touch');
   if (!active || D.over) return;
   if (ptr.moved) { D.stamina -= MOVE_DRAIN * drainMult() * dt; ptr.moved = false; }
-  if (D.swingCd > 0) return;
+  // 前摇结束：结算落点
+  if (D.pending) { D.pending.t -= dt; if (D.pending.t <= 0) { const hp = D.pending; D.pending = null; resolveSwing(hp.x, hp.y); } }
+  if (D.swingCd > 0 || D.pending) return;
   const r = radiusPx();
   const targets = D.poops.filter(p => dist(ptr.x, ptr.y, p.x, p.y) <= r + 8 * p.size);
   if (!targets.length) return;
   if (D.stamina <= 0) return;
-  D.swingCd = 1 / speed(); D.swingAnim = 1;
+  const iv = 1 / speed();
+  D.swingCd = iv; D.swingAnim = 1;
   D.stamina -= STAMINA_PER_SWING * drainMult();
   if (hasPerk('recover')) D.stamina = Math.min(maxStamina(), D.stamina + 1);
+  D.pending = { x: ptr.x, y: ptr.y, t: iv * 0.35 }; // [待核] 前摇占挥铲间隔 35%
+}
+function resolveSwing(x, y) {
+  const r = radiusPx();
+  const targets = D.poops.filter(p => dist(x, y, p.x, p.y) <= r + 8 * p.size);
+  if (!targets.length) { D.streak = 0; puff(x, y, 5, '#e8d9b0'); addFloat(x, y - 20, '铲空', '#ddd', 12); SFX.miss(); return; }
   D.hits++; D.streak++;
-  if (D.streak % 10 === 0) { D.combo++; addFloat(ptr.x, ptr.y - 50, `连击 ${D.combo}`, '#ffcc4d', 18); }
+  if (D.streak % 10 === 0) { D.combo++; addFloat(x, y - 50, `连击 ${D.combo}`, '#ffcc4d', 18); }
   if (hasPerk('freeze')) { D.freezeChance += 0.01; if (Math.random() < D.freezeChance) { D.freezeT = 2.5; D.freezeChance = 0; addFloat(240, 110, '猫都睡了 · 2.5s', '#9fd8ff', 16); } }
   const isCrit = Math.random() < critChance();
   let dmg = dmgRoll(); if (isCrit) dmg = Math.round(dmg * critMult());
-  const p = targets.sort((a, b) => dist(ptr.x, ptr.y, a.x, a.y) - dist(ptr.x, ptr.y, b.x, b.y))[0];
+  const p = targets.sort((a, b) => dist(x, y, a.x, a.y) - dist(x, y, b.x, b.y))[0];
   p.hp -= dmg; p.squash = 1;
   puff(p.x, p.y, 5, '#e8d9b0'); puff(p.x, p.y, 3, p.color);
   addFloat(p.x + rnd(-10, 10), p.y - 24, `${isCrit ? '暴击 ' : ''}-${dmg}`, isCrit ? '#ffcc4d' : '#fff', isCrit ? 17 : 13);
-  if (isCrit) { D.critCount++; SFX.crit(); coins(p.x, p.y, hasPerk('critgold') ? 6 : 3, 0); D.shake = 4; }
-  if (p.hp <= 0) destroyPoop(p, isCrit); else (isCrit ? 0 : SFX.hit());
-  if (D.stamina <= 0) { D.stamina = 0; D.endT = 0.8; }
+  if (isCrit) { D.critCount++; SFX.crit(); coins(p.x, p.y, hasPerk('critgold') ? 6 : 3); D.shake = 4; if (hasPerk('critgold')) { D.haul += 1; addFloat(p.x + 16, p.y - 40, '+$1', '#ffcc4d', 12); } }
+  if (p.hp <= 0) destroyPoop(p); else if (!isCrit) SFX.hit();
 }
 function rollLoot(T) {
   let tier = 0; const r = Math.random(); let acc = 0;
   for (let i = 0; i < T.loot.length; i++) { acc += T.loot[i][0]; if (r < acc) { tier = i; break; } }
   if (Math.random() < luck()) tier = Math.min(T.loot.length - 1, tier + 1);
-  if (S.run.nextLuck >= 1) tier = T.loot.length - 1;
   const t = T.loot[tier];
   return { v: rint(t[1], t[2]), tier };
 }
-function destroyPoop(p, crit) {
+function destroyPoop(p) {
   const T = CATS[p.type];
   const { v, tier } = rollLoot(T);
-  let gain = Math.round(v * lootMult()) + (crit && hasPerk('critgold') ? 1 : 0);
-  D.haul += gain; S.run.cash += gain; D.destroyed++;
+  const gain = Math.round(v * lootMult());
+  D.haul += gain; D.destroyed++;
   D.poops = D.poops.filter(x => x.id !== p.id);
   puff(p.x, p.y, 10, p.color); puff(p.x, p.y, 8, '#e8d9b0');
-  coins(p.x, p.y, Math.min(24, 3 + Math.floor(gain / 2)), gain);
+  coins(p.x, p.y, Math.min(24, 3 + Math.floor(gain / 2)));
   addFloat(p.x, p.y - 34, `+${fmt(gain)}`, tier === 2 ? '#ff9de2' : tier === 1 ? '#ffcc4d' : '#fff3b0', 15 + tier * 4);
   if (tier === 2) { addFloat(p.x, p.y - 56, '大奖！', '#ff9de2', 20); D.shake = 8; SFX.win(); } else SFX.crack();
   if (T.restore) { D.stamina = Math.min(maxStamina(), D.stamina + T.restore); addFloat(p.x, p.y - 12, `体力 +${T.restore}`, '#7ee081', 13); }
@@ -231,6 +239,7 @@ function update(dt) {
   if (!D.over) {
     updateCats(dt); updatePoops(dt); updateSwing(dt);
     D.spawnT -= dt; if (D.spawnT <= 0) { D.spawnT = spawnInterval(); if (D.poops.length + D.cats.length < 12) spawnPoop(pick(S.run.unlocked), false); }
+    if (D.stamina <= 0 && !D.pending && D.endT <= 0) { D.stamina = 0; D.endT = 0.8; }
     if (D.endT > 0) { D.endT -= dt; if (D.endT <= 0) endRun(); }
   }
   for (const p of D.parts) { p.life -= dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.rot !== undefined) p.rot += dt * 9; }
@@ -266,7 +275,7 @@ function draw() {
   ctx.fillText(`${sh.name} · 铲力 ${sh.dmg[0] + lv('dmg')}–${sh.dmg[1] + lv('dmg')} · 铲速 ${speed().toFixed(2)}/s · 铲口 ${(radiusPx() / PX_PER_UNIT).toFixed(1)} · 暴击 ${Math.round(critChance() * 100)}%`, 36, 556);
   ctx.fillText(`本局所得 ${fmt(D.haul)} · 铲了 ${D.hits} 下 · 连击 ${D.combo}${D.freezeT > 0 ? ' · ❄ 猫都睡了' : ''}`, 36, 578);
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '12px -apple-system,"PingFang SC",sans-serif';
-  ctx.fillText(('ontouchstart' in window) ? '手指按住拖到屎上，自动铲' : '鼠标移到屎上，自动铲 · 不用点', 36, 604);
+  ctx.fillText(ptr.type === 'touch' ? '手指按住拖到屎上，自动铲' : '鼠标移到屎上，自动铲 · 不用点', 36, 604);
   if (D.over) { ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(0, 0, W, H); }
   ctx.restore();
 }
@@ -328,20 +337,21 @@ function drawParticles() {
 const $ = id => document.getElementById(id);
 function hud() {
   $('hud-day').textContent = `第 ${S.cycle} 周目 · 第 ${S.run.day} 天`;
-  $('hud-cans').textContent = fmt(S.run.cash);
+  $('hud-cans').textContent = D && !D.over ? `${fmt(S.run.cash)} +${fmt(D.haul)}` : fmt(S.run.cash);
   $('hud-cats').textContent = `💍 ${S.lp} 点`;
   const st = D ? Math.max(0, D.stamina) : maxStamina();
   $('bar-stamina').style.width = `${(st / maxStamina()) * 100}%`; $('txt-stamina').textContent = `${Math.ceil(st)}`;
-  const b = curBill(); const pct = clamp(S.run.cash / b.amt, 0, 1);
+  const b = curBill(); const pct = clamp((S.run.cash + (D && !D.over ? D.haul : 0)) / b.amt, 0, 1);
   $('bar-clean').style.width = `${pct * 100}%`; $('txt-clean').textContent = `${Math.round(pct * 100)}%`;
   $('combo-hint').textContent = D && !D.over ? `盘里 ${D.poops.length} 坨` : '';
 }
 
 // ---------- 结算 ----------
-function startRun() { newRun(); running = true; $('dayend').classList.add('hidden'); $('btn-endday').disabled = false; save(); }
+function startRun() { newRun(true); $('dayend').classList.add('hidden'); $('btn-endday').disabled = false; save(); }
 function endRun() {
   if (!D || D.over) return;
-  D.over = true; $('btn-endday').disabled = true;
+  D.over = true; D.pending = null; $('btn-endday').disabled = true;
+  S.run.cash += D.haul;
   S.run.nextMult = 1; S.run.nextLuck = 0;
   S.stats.best = Math.max(S.stats.best, D.haul);
   renderSettle();
@@ -349,16 +359,20 @@ function endRun() {
 }
 function renderSettle() {
   $('de-title').textContent = `第 ${S.run.day} 天 · 收工`;
-  const b = curBill(); const canPay = S.run.cash >= b.amt;
+  const done = S.run.billIdx >= BILLS.length;
+  const b = curBill(); const canPay = !done && S.run.cash >= b.amt;
   let html = `<div class="summary"><div>本局所得 <b>${fmt(D.haul)}</b></div><div>存款 <b>${fmt(S.run.cash)}</b></div><div>铲了 <b>${D.hits}</b> 下 · 暴击 <b>${D.critCount}</b></div><div>铲净 <b>${D.destroyed}</b> 坨 · 连击 <b>${D.combo}</b></div></div>`;
   // 赌局
-  if (!D.gambled && D.haul > 0) html += `<div class="sect"><div class="sect-t">🪙 猫推硬币 <span class="sub">Double or Nothing · 押本局所得 ${fmt(D.haul)} · 50/50</span></div><button class="ghost" id="btn-flip">让猫推一下</button></div>`;
+  if (!D.gambled && !D.spent && D.haul > 0 && S.run.cash >= D.haul) html += `<div class="sect"><div class="sect-t">🪙 猫推硬币 <span class="sub">Double or Nothing · 押本局所得 ${fmt(D.haul)} · 50/50</span></div><button class="ghost" id="btn-flip">让猫推一下</button></div>`;
   else if (D.gambleMsg) html += `<div class="sect"><div class="sect-t">${D.gambleMsg}</div></div>`;
+  if (D.unlockMsg) html += `<div class="sect"><div class="sect-t">🐾 ${D.unlockMsg}</div></div>`;
   // 账单
-  html += `<div class="sect bill ${S.run.billDue <= 0 && !canPay ? 'danger' : ''}"><div class="sect-t">🧾 账单 ${S.run.billIdx + 1}：${b.name} <b>${fmt(b.amt)}</b> <span class="sub">${S.run.billDue <= 0 ? '今天到期' : `${S.run.billDue} 天后到期`}${S.run.billDue > 0 ? ` · 现在付=提前 ${S.run.billDue} 天，下一张到期日提前同样天数${hasRing('early') ? '，勤快戒 +' + S.run.billDue * 2 + '% 铲速' : ''}` : ''}</span></div>
+  if (done) html += `<div class="sect bill"><div class="sect-t">🎉 全部账单付清 · 自由！</div><div class="sub">原作此处进入 King Piggy Boss → 税 → 结局，demo v0.5 再做。可以继续铲着玩。</div></div>`;
+  else html += `<div class="sect bill ${S.run.billDue <= 0 && !canPay ? 'danger' : ''}"><div class="sect-t">🧾 账单 ${S.run.billIdx + 1}：${b.name} <b>${fmt(b.amt)}</b> <span class="sub">${S.run.billDue <= 0 ? '今天到期' : `${S.run.billDue} 天后到期`}${S.run.billDue > 0 ? ` · 现在付=提前 ${S.run.billDue} 天，下一张到期日提前同样天数${hasRing('early') ? '，勤快戒 +' + S.run.billDue * 2 + '% 铲速' : ''}` : ''}</span></div>
     <div class="sub src">${b.src}</div>
     <button class="primary sm" id="btn-pay" ${canPay ? '' : 'disabled'}>${canPay ? `付清 ${fmt(b.amt)}` : `还差 ${fmt(b.amt - S.run.cash)}`}</button>
     ${S.run.billDue <= 0 && !canPay ? `<button class="ghost danger" id="btn-bankrupt">付不出 → 破产（传承点 ${Math.floor(S.run.paidTotal * LP_PER_DOLLAR)}）</button>` : ''}</div>`;
+  const mustPay = !done && S.run.billDue <= 0; // 今天到期：有钱必须先付，没钱只能破产
   // Perk 已持有
   if (S.run.perks.length) html += `<div class="sub">持有 perk：${S.run.perks.map(id => PERKS.find(p => p.id === id).name).join(' · ')}</div>`;
   // 技能树
@@ -366,14 +380,13 @@ function renderSettle() {
   // 铲子商店
   html += `<h3>铲子商店</h3><div id="shop"></div>`;
   $('de-summary').innerHTML = html;
-  $('de-cats').textContent = '';
   const tree = $('tree');
   for (const n of TREE) {
     const l = lv(n.id), cost = treeCost(n), maxed = l >= n.max;
     const el = document.createElement('div'); el.className = 'item' + (maxed ? ' max' : '');
     el.innerHTML = `<div class="info"><div class="name">${n.name} <span class="sub">Lv.${l} · ${n.br}</span></div><div class="desc">${n.desc}</div></div>`;
     const btn = document.createElement('button'); btn.textContent = maxed ? '满' : fmt(cost); btn.disabled = maxed || S.run.cash < cost;
-    btn.onclick = () => { S.run.cash -= cost; S.run.tree[n.id] = l + 1; SFX.ui(); save(); renderSettle(); hud(); };
+    btn.onclick = () => { S.run.cash -= cost; S.run.tree[n.id] = l + 1; D.spent = true; SFX.ui(); save(); renderSettle(); hud(); };
     el.appendChild(btn); tree.appendChild(el);
   }
   const shop = $('shop');
@@ -382,7 +395,7 @@ function renderSettle() {
     const el = document.createElement('div'); el.className = 'item' + (i === S.run.shovel ? ' max' : '');
     el.innerHTML = `<div class="ico">🥄</div><div class="info"><div class="name">${sh.name}</div><div class="desc">铲力 ${sh.dmg[0]}–${sh.dmg[1]} · 铲速 ${sh.spd[0]}–${sh.spd[1]}/s · 铲口 ${sh.r} · 暴击 ${sh.crit * 100}% <span class="src">${sh.src}</span></div></div>`;
     const btn = document.createElement('button'); btn.textContent = i === S.run.shovel ? '在用' : owned ? '已有' : fmt(sh.price); btn.disabled = owned || S.run.cash < sh.price || i !== S.run.shovel + 1;
-    btn.onclick = () => { S.run.cash -= sh.price; S.run.shovel = i; SFX.ui(); save(); renderSettle(); hud(); };
+    btn.onclick = () => { S.run.cash -= sh.price; S.run.shovel = i; D.spent = true; SFX.ui(); save(); renderSettle(); hud(); };
     el.appendChild(btn); shop.appendChild(el);
   });
   const flip = $('btn-flip'); if (flip) flip.onclick = () => {
@@ -394,8 +407,8 @@ function renderSettle() {
   };
   const pay = $('btn-pay'); if (pay) pay.onclick = payBill;
   const bk = $('btn-bankrupt'); if (bk) bk.onclick = bankrupt;
-  $('btn-next').textContent = S.run.billDue <= 0 && !canPay ? '付不出账单，不能进入下一天' : '下一天';
-  $('btn-next').disabled = S.run.billDue <= 0 && !canPay;
+  $('btn-next').textContent = mustPay ? (canPay ? '账单今天到期，先付清' : '付不出账单，不能进入下一天') : '下一天';
+  $('btn-next').disabled = mustPay;
 }
 function payBill() {
   const b = curBill();
@@ -403,10 +416,11 @@ function payBill() {
   const early = Math.max(0, S.run.billDue); S.run.earlyDays += early;
   S.run.billIdx++;
   const nb = curBill(); S.run.billDue = Math.max(0, nb.due - early); // 提前付：下一张到期日提前同样天数（原作）
-  for (const [cat, idx] of Object.entries(UNLOCK_BY_BILL)) if (S.run.billIdx >= idx && !S.run.unlocked.includes(cat)) { S.run.unlocked.push(cat); $('de-cats').textContent = `解锁新猫：${CATS[cat].name} ${CATS[cat].emoji}（${CATS[cat].src}）`; }
+  for (const [cat, idx] of Object.entries(UNLOCK_BY_BILL)) if (S.run.billIdx >= idx && !S.run.unlocked.includes(cat)) { S.run.unlocked.push(cat); D.unlockMsg = `解锁新猫：${CATS[cat].name} ${CATS[cat].emoji}（原作 ${CATS[cat].src}）`; }
+  if (S.run.billIdx >= BILLS.length) { S.run.billDue = 99; SFX.win(); save(); renderSettle(); hud(); return; }
   SFX.win(); save();
   // 三选一 perk
-  const pool = PERKS.filter(p => !S.run.perks.includes(p.id) || p.id === 'recover');
+  const pool = PERKS.filter(p => !S.run.perks.includes(p.id));
   const offer = []; while (offer.length < 3 && pool.length) offer.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
   $('perk-list').innerHTML = '';
   for (const p of offer) { const el = document.createElement('button'); el.className = 'perk'; el.innerHTML = `<div class="name">${p.name}</div><div class="desc">${p.desc}</div><div class="src">${p.src}</div>`; el.onclick = () => { S.run.perks.push(p.id); SFX.ui(); save(); $('perkpick').classList.add('hidden'); renderSettle(); hud(); }; $('perk-list').appendChild(el); }
@@ -442,11 +456,11 @@ function newCycle() { S.cycle++; S.run = freshRun(); save(); $('bankrupt').class
 
 // ---------- 输入 ----------
 function canvasPos(e) { const r = cv.getBoundingClientRect(); const sc = Math.min(r.width / W, r.height / H); const ox = (r.width - W * sc) / 2, oy = (r.height - H * sc) / 2; return { x: (e.clientX - r.left - ox) / sc, y: (e.clientY - r.top - oy) / sc }; }
-cv.addEventListener('pointermove', e => { const p = canvasPos(e); if (Math.abs(p.x - ptr.x) + Math.abs(p.y - ptr.y) > 0.5) ptr.moved = true; ptr.x = p.x; ptr.y = p.y; ptr.inside = p.x >= 0 && p.y >= 0 && p.x <= W && p.y <= H; });
-cv.addEventListener('pointerdown', e => { e.preventDefault(); ac(); const p = canvasPos(e); ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.inside = true; });
+cv.addEventListener('pointermove', e => { ptr.type = e.pointerType || 'mouse'; const p = canvasPos(e); if (Math.abs(p.x - ptr.x) + Math.abs(p.y - ptr.y) > 0.5) ptr.moved = true; ptr.x = p.x; ptr.y = p.y; ptr.inside = p.x >= 0 && p.y >= 0 && p.x <= W && p.y <= H; });
+cv.addEventListener('pointerdown', e => { e.preventDefault(); ac(); ptr.type = e.pointerType || 'mouse'; const p = canvasPos(e); ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.inside = true; });
 cv.addEventListener('pointerup', () => { ptr.down = false; });
 cv.addEventListener('pointerleave', () => { ptr.inside = false; ptr.down = false; });
-$('btn-endday').onclick = () => { if (running && D && !D.over) { D.endT = 0.01; } };
+$('btn-endday').onclick = () => { if (D && !D.over) { D.endT = 0.01; } };
 $('btn-next').onclick = nextDay;
 $('btn-start').onclick = () => { ac(); $('splash').classList.add('hidden'); startRun(); };
 $('btn-reset').onclick = () => { localStorage.removeItem(SAVE_KEY); S = freshSave(); hud(); $('btn-reset').textContent = '已清空'; $('btn-start').textContent = '开始铲'; };
@@ -458,7 +472,7 @@ window.PMS = { get S() { return S; }, get D() { return D; }, endRun, bankrupt, g
 
 // ---------- 启动 ----------
 if (load()) $('btn-start').textContent = `继续 · 第 ${S.cycle} 周目第 ${S.run.day} 天`;
-newRun(); D.over = true;
+newRun(false); D.over = true;
 function frame(now) { const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; if (D) { update(dt); draw(); hud(); } requestAnimationFrame(frame); }
 lastT = performance.now(); requestAnimationFrame(frame);
 })();
