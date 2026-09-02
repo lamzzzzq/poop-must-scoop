@@ -45,3 +45,24 @@ button:disabled{opacity:.45;cursor:default}
 .item button{background:#ffcc4d;color:#4a2c0f;padding:6px 10px;border-radius:8px;white-space:nowrap;font-size:13px;box-shadow:0 2px 0 #c9962c}
 .item button:disabled{background:#ddd;box-shadow:none;color:#888}
 .item.max button{background:#cfe8c2;color:#2f4a22;box-shadow:none}
+/* v0.2 */
+.overlay.top{z-index:6}
+.sect{background:rgba(0,0,0,.05);border-radius:10px;padding:10px;margin-top:8px;font-size:14px}
+.sect.bill{background:#fff3d6}
+.sect.bill.danger{background:#ffe0dc}
+.sect-t{font-weight:700;color:#6b3e1e;margin-bottom:6px;line-height:1.4}
+.sect .sub{font-weight:400;font-size:12px;opacity:.7}
+.sub{font-size:12px;opacity:.7;margin-top:6px;line-height:1.4}
+.src{font-size:11px;opacity:.5}
+button.sm{font-size:15px;padding:9px 16px;margin-top:6px;width:100%}
+button.ghost.danger{background:#e2493d;color:#fff;margin-top:6px;width:100%}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.grid .item{padding:6px 8px;font-size:12px;flex-direction:column;align-items:stretch;gap:4px}
+.grid .item .desc{font-size:11px}
+.grid .item button{width:100%;padding:5px 6px}
+#perk-list{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+.perk{background:#fff;color:#3b2a14;text-align:left;padding:10px 12px;border-radius:12px;border:2px solid #ffcc4d;box-shadow:0 3px 0 #c9962c}
+.perk .name{font-weight:700;font-size:15px;color:#6b3e1e}
+.perk .desc{font-size:13px;font-weight:400;margin-top:2px}
+.perk .src{margin-top:2px;display:block}
+.card h3 .cans{font-size:14px}

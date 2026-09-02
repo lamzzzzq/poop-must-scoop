@@ -1,584 +1,325 @@
-/* 屎必须铲 Poop Must Scoop — v0.1 playable demo
-   纯 Canvas + WebAudio 合成音，无外部资源。 */
+/* 屎必须铲 Poop Must Scoop — v0.2 换皮 demo
+   系统与数值照《账单必须支付》(docs/BMBP_SYSTEM.md)，替换规则见 docs/RESKIN_MAP.md。
+   标 [待核] 的数字 = 原作未查到，临时值，依据写在 RESKIN_MAP §10。 */
 (() => {
 'use strict';
-
-// ---------- 常量 ----------
 const W = 480, H = 640;
-const SAVE_KEY = 'pms_save_v1';
-
-// 屎的生命周期：每档一个新形态。t = 起始秒数，mult = 收益倍率
-const STAGES = [
-  { key: 'fresh',  name: '新鲜',   t: 0,  mult: 1.5, w: 0.0 },
-  { key: 'clump',  name: '结块',   t: 6,  mult: 1.0, w: 0.3 },
-  { key: 'flies',  name: '招苍蝇', t: 15, mult: 1.0, w: 0.6 },
-  { key: 'stink',  name: '臭气',   t: 25, mult: 0.8, w: 1.0 },
-  { key: 'shroom', name: '长蘑菇', t: 40, mult: 1.0, w: 1.0, drop: 'shroom' },
-  { key: 'fossil', name: '化石',   t: 60, mult: 0.5, w: 0.8, drop: 'fossil', hp: 3 },
-];
-
-// 猫：形状 / 颜色 / 偏好 / 频率
-const CATS = {
-  libua:   { name: '狸花', emoji: '🐈',   shape: 'swirl', color: '#6b3e1e', size: 1.0, interval: 3.0, pref: 'box',       value: 1, minDay: 1 },
-  orange:  { name: '大橘', emoji: '😺',   shape: 'log',   color: '#8a4b1c', size: 1.4, interval: 5.0, pref: 'flowerbed', value: 2, minDay: 2 },
-  ragdoll: { name: '布偶', emoji: '🐱',   shape: 'ball',  color: '#7a5230', size: 0.9, interval: 3.5, pref: 'box', strict: true, value: 1, minDay: 2 },
-  sphynx:  { name: '无毛猫', emoji: '😼', shape: 'cube',  color: '#5c3a1e', size: 1.0, interval: 2.4, pref: 'box',       value: 1, minDay: 3 },
-  kitten:  { name: '小猫', emoji: '😸',   shape: 'bean',  color: '#7d4a25', size: 0.6, interval: 2.0, pref: 'any', burst: 3, value: 0.5, minDay: 3 },
-  black:   { name: '黑猫', emoji: '🐈‍⬛', shape: 'swirl', color: '#3a2415', size: 1.1, interval: 4.5, pref: 'roof',      value: 1.5, minDay: 4 },
-};
-const CAT_ORDER = ['libua', 'ragdoll', 'orange', 'sphynx', 'kitten', 'black'];
-
-// 院子点位
-const SPOTS = [
-  { id: 'flowerbed', name: '花坛', x: 70,  y: 150, emoji: '🌷' },
-  { id: 'roof',      name: '围墙', x: 410, y: 140, emoji: '🧱' },
-  { id: 'bush',      name: '草丛', x: 80,  y: 400, emoji: '🌿' },
-  { id: 'shoe',      name: '鞋',   x: 400, y: 410, emoji: '👟' },
-  { id: 'lawn',      name: '草坪', x: 240, y: 280, emoji: '' },
-  { id: 'pot',       name: '花盆', x: 240, y: 440, emoji: '🪴' },
-];
-const SPOT_CAP = 5;            // 同点位堆满 5 坨 → 屎山
-const BOX_Y = 560, BOX_W = 120, BOX_H = 70, BOX_CAP = 4;
-const BOX_SLOTS = [[-30, -12], [30, -12], [-30, 14], [30, 14]];
-
-// 商店
-const SHOP = [
-  { id: 'shovel',  ico: '🥄', name: '铲子',     base: 10, max: 5,
-    levels: ['塑料铲', '宽口铲 · 半径+40%', '筛砂铲 · 半径+80%，结块×1.3', '电动铲 · 半径+150%，连击窗口↑', '耙子 · 半径+250%', '铲屎机甲 · 全场一铲'] },
-  { id: 'stamina', ico: '💪', name: '体力',     base: 8,  max: 10, desc: '手酸阈值 +5' },
-  { id: 'grip',    ico: '🤜', name: '握力',     base: 15, max: 6,  desc: '连击倍率上限 +0.5' },
-  { id: 'litter',  ico: '🧂', name: '猫砂',     base: 20, max: 2,  levels: ['普通猫砂', '结团猫砂 · 演变慢 30%', '除臭猫砂 · 跳过臭气'] },
-  { id: 'box',     ico: '🧺', name: '猫砂盆',   base: 25, max: 2,  desc: '再放一个盆（最多 3）' },
-  { id: 'yard',    ico: '🏡', name: '扩建后院', base: 40, max: 3,  desc: '猫容量 +5' },
-  { id: 'autobox', ico: '🤖', name: '自动猫砂盆', base: 60, max: 3, desc: '定时自动清盆里一坨（收益 ×0.5）' },
-  { id: 'helper',  ico: '🧑‍🌾', name: '兼职铲屎官', base: 90, max: 3, desc: '定时自动铲院子一坨（收益 ×0.5）' },
-];
-const SHOVEL_R = [0, 0.4, 0.8, 1.5, 2.5, 6];
-
-// ---------- 工具 ----------
+const SAVE_KEY = 'pms_v2';
 const rnd = (a, b) => a + Math.random() * (b - a);
-const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+const rint = (a, b) => Math.floor(rnd(a, b + 1));
+const pick = a => a[Math.floor(Math.random() * a.length)];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const dist = (ax, ay, bx, by) => Math.hypot(ax - bx, ay - by);
+const fmt = n => '$' + Math.round(n).toLocaleString('en-US');
 let uid = 1;
 
+// ---------- 猫 = 存钱罐种类；屎 = 存钱罐实例 ----------
+// loot: 掉落档位 [概率, 低, 高]。大橘 = The Tourist（原作：HP 22；65% 8–13；3% 85–125；砸碎回体）
+const CATS = {
+  libua:  { name: '狸花', src: 'Normalito', emoji: '🐈', shape: 'swirl', color: '#6b3e1e', size: 1.0,
+            hp: 8,  loot: [[0.65, 3, 5], [0.32, 6, 8], [0.03, 30, 45]], drift: true,  restore: 0, note: '[待核] HP/掉落按 Tourist 表等比缩 1/3' },
+  orange: { name: '大橘', src: 'The Tourist', emoji: '😺', shape: 'log', color: '#8a4b1c', size: 1.5,
+            hp: 22, loot: [[0.65, 8, 13], [0.32, 20, 40], [0.03, 85, 125]], drift: false, restore: 3, note: '中档 20–40 与回体 +3 为 [待核]' },
+};
+const UNLOCK_BY_BILL = { orange: 2 }; // 付清第 2 张账单解锁大橘 [待核]
+
+// ---------- 账单（原作锚点 + 占位，见 RESKIN_MAP §4） ----------
+const BILLS = [
+  { name: '水费',   amt: 20,     due: 0, src: 'Water Bill $20 立即（原作）' },
+  { name: '猫粮',   amt: 95,     due: 3, src: '[待核] 占位' },
+  { name: '兽医',   amt: 400,    due: 4, src: '[待核] 占位' },
+  { name: '房租',   amt: 750,    due: 2, src: 'Rent $750 due in 2 days（原作截图）' },
+  { name: '猫砂',   amt: 750,    due: 5, src: '[待核] 占位，五张合计 $2,015（原作）' },
+  { name: '保释金', amt: 250000, due: 5, src: 'Bail Bond $250,000 due 5 days（原作）；中间账单未查到' },
+  { name: '猫别墅按揭', amt: 4000000, due: 9, src: '$4M（原作）' },
+  { name: '猫别墅按揭 II', amt: 7000000, due: 9, src: '$7M（原作）' },
+  { name: '猫岛', amt: 56000000, due: 9, src: '$56M 最后一张（原作单人转述）' },
+];
+
+// ---------- 铲子 = 锤子（原作：Toy Hammer $1,000 伤害 7–9 攻速 1.20–1.76/s 范围 2–2.30） ----------
+const PX_PER_UNIT = 20; // [待核] 原作范围单位→像素
+const SHOVELS = [
+  { name: '塑料铲', price: 0,    dmg: [4, 6],  spd: [1.0, 1.0],   r: 1.8, crit: 0.05, src: '[待核] 起始铲，比玩具铲弱' },
+  { name: '玩具铲', price: 1000, dmg: [7, 9],  spd: [1.2, 1.76],  r: 2.0, crit: 0.05, src: 'Toy Hammer（原作数值）' },
+  { name: '铁铲',   price: 4000, dmg: [14, 18], spd: [1.2, 1.5],  r: 2.3, crit: 0.10, src: '价格 $4,000（原作）；参数 [待核]' },
+];
+const CRIT_MULT = 2.0; // [待核]
+
+// ---------- 技能树（局内现金，破产清零）价格 [待核] ----------
+const TREE = [
+  { id: 'dmg',   br: '握力',   name: '铲力',       desc: '+1 铲力',            base: 60,  max: 20 },
+  { id: 'crit',  br: '握力',   name: '一铲到底',   desc: '+2% 暴击',           base: 120, max: 10 },
+  { id: 'rad',   br: '握力',   name: '铲口',       desc: '+0.2 铲口',          base: 150, max: 8 },
+  { id: 'stam',  br: '咖啡',   name: '体力上限',   desc: '+10 体力',           base: 80,  max: 20 },
+  { id: 'drain', br: '咖啡',   name: '省力',       desc: '移动耗体 −10%',      base: 100, max: 5 },
+  { id: 'spd',   br: '健身房', name: '铲速',       desc: '+5% 铲速',           base: 90,  max: 10 },
+  { id: 'luck',  br: '幸运',   name: '幸运',       desc: '+3% 掉落升档几率',   base: 110, max: 10 },
+  { id: 'loot',  br: '幸运',   name: '掉落',       desc: '+5% 掉落金额',       base: 100, max: 10 },
+  { id: 'start', br: '猫',     name: '开局屎数',   desc: '+1 开局屎',          base: 130, max: 6 },
+  { id: 'spawn', br: '猫',     name: '猫拉屎频率', desc: '拉屎间隔 −10%',      base: 130, max: 6 },
+];
+const treeCost = n => Math.round(n.base * Math.pow(1.6, S.run.tree[n.id] || 0)); // 1.6 [待核]
+
+// ---------- Perk 三选一（原作效果，原数值） ----------
+const PERKS = [
+  { id: 'freeze',   name: '猫都睡了',     src: 'Deep Freeze',      desc: '命中有几率冻住全场 2.5s（几率随每铲累积）' },
+  { id: 'recover',  name: '越铲越精神',   src: 'Recovery Smash',   desc: '每铲一下 +1 体力' },
+  { id: 'interest', name: '罐头基金复利', src: 'Interest Rate',    desc: '每局开始按存款 5% 发利息' },
+  { id: 'house',    name: '手气顺',       src: 'House Never Wins', desc: '赌赢后，下一局收益 ×1.5' },
+  { id: 'lucky',    name: '否极泰来',     src: 'Lucky Loss',       desc: '赌输后，下一局掉落 100% 幸运' },
+  { id: 'critgold', name: '一铲到底掉金', src: '暴击掉金（玩家转述）', desc: '暴击时额外掉 1 枚金币 [待核]' },
+];
+
+// ---------- 戒指（破产后用传承点购买，永久；原作 1 点/$50） ----------
+const RINGS = [
+  { id: 'crit',  name: '一铲到底戒', cost: 50,   src: 'Crit Ring 50 LP',        desc: '+10% 暴击，+50% 暴伤' },
+  { id: 'early', name: '勤快戒',     cost: 75,   src: 'Early Speed Ring 75 LP', desc: '每提前 1 天付账 +2% 铲速（上限 25%），持续本周目' },
+  { id: 'drain', name: '省力戒',     cost: 100,  src: '−10% 体力消耗戒（价格 [待核]）', desc: '体力消耗 −10%' },
+  { id: 'loot',  name: '掉落戒',     cost: 100,  src: '+10% 掉落戒（价格 [待核]）',   desc: '掉落 +10%' },
+  { id: 'dmg3',  name: '铲力戒 III', cost: 1000, src: 'Damage Ring III 1,000 LP', desc: '+20% 铲力' },
+];
+const LP_PER_DOLLAR = 1 / 50;
+
+// ---------- 体力 [待核] ----------
+const STAMINA_BASE = 60, STAMINA_PER_SWING = 1, MOVE_DRAIN = 0.5;
+const SPAWN_BASE = 4.0, START_POOPS = 3; // [待核]
+const TRAY = { x: 20, y: 70, w: 440, h: 400 };
+
 // ---------- 存档 ----------
-const defaultSave = () => ({
-  day: 1, cans: 0, clock: 0,
-  up: { shovel: 0, stamina: 0, grip: 0, litter: 0, box: 0, yard: 0, autobox: 0, helper: 0 },
-  cats: ['libua'],
-  col: { shroom: 0, fossil: 0 },
-  stats: { scooped: 0, bestCombo: 0, mountains: 0, earned: 0 },
-  poops: [], mounts: [],
-});
-let S = defaultSave();
-function load() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (!raw) return false;
-    const d = JSON.parse(raw);
-    S = Object.assign(defaultSave(), d);
-    S.up = Object.assign(defaultSave().up, d.up || {});
-    S.col = Object.assign(defaultSave().col, d.col || {});
-    S.stats = Object.assign(defaultSave().stats, d.stats || {});
-    return true;
-  } catch (e) { return false; }
-}
-function save() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* 隐私模式忽略 */ }
-}
+const freshRun = () => ({ cash: 0, day: 1, billIdx: 0, billDue: BILLS[0].due, paidTotal: 0, tree: {}, shovel: 0, perks: [], unlocked: ['libua'], earlyDays: 0, savedByFriend: false, nextMult: 1, nextLuck: 0 });
+const freshSave = () => ({ cycle: 1, lp: 0, rings: [], run: freshRun(), stats: { bankrupt: 0, paid: 0, best: 0 } });
+let S = freshSave();
+function load() { try { const d = JSON.parse(localStorage.getItem(SAVE_KEY)); if (d && d.run) { S = Object.assign(freshSave(), d); return true; } } catch (e) {} return false; }
+function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 
-// ---------- 派生数值 ----------
-const maxStamina = () => 15 + S.up.stamina * 5;
-const catCap = () => 5 + S.up.yard * 5;
-const boxCount = () => 1 + S.up.box;
-const shovelRadius = () => 26 * (1 + SHOVEL_R[S.up.shovel]);
-const shovelMult = () => 1 + 0.25 * S.up.shovel;
-const comboCap = () => 2 + 0.5 * S.up.grip;
-const comboWindow = () => S.up.shovel >= 3 ? 1.2 : 0.8;
-const agingRate = () => S.up.litter >= 1 ? 0.7 : 1;
-const cleanThreshold = () => 6 + boxCount() * 2 + S.up.yard * 2;
-const shopCost = (item) => Math.round(item.base * Math.pow(1.6, S.up[item.id]));
+// ---------- 派生 ----------
+const hasRing = id => S.rings.includes(id);
+const lv = id => S.run.tree[id] || 0;
+const shovel = () => SHOVELS[S.run.shovel];
+const maxStamina = () => STAMINA_BASE + lv('stam') * 10;
+const critChance = () => shovel().crit + lv('crit') * 0.02 + (hasRing('crit') ? 0.10 : 0);
+const critMult = () => CRIT_MULT + (hasRing('crit') ? 0.5 : 0);
+const radiusPx = () => (shovel().r + lv('rad') * 0.2) * PX_PER_UNIT;
+const speed = () => { const s = shovel().spd; const base = (s[0] + s[1]) / 2 * (1 + lv('spd') * 0.05); const early = hasRing('early') ? Math.min(0.25, S.run.earlyDays * 0.02) : 0; return base * (1 + early); };
+const dmgRoll = () => { const d = shovel().dmg; let v = rint(d[0], d[1]) + lv('dmg'); if (hasRing('dmg3')) v *= 1.2; return v; };
+const drainMult = () => (1 - lv('drain') * 0.1) * (hasRing('drain') ? 0.9 : 1);
+const lootMult = () => (1 + lv('loot') * 0.05) * (hasRing('loot') ? 1.1 : 1) * S.run.nextMult;
+const luck = () => Math.min(1, lv('luck') * 0.03 + S.run.nextLuck);
+const spawnInterval = () => SPAWN_BASE * Math.pow(0.9, lv('spawn'));
+const hasPerk = id => S.run.perks.includes(id);
+const curBill = () => BILLS[Math.min(S.run.billIdx, BILLS.length - 1)];
 
-function boxPositions() {
-  const n = boxCount();
-  return (n === 1 ? [240] : n === 2 ? [160, 320] : [90, 240, 390]).map((x, i) => ({ i, x, y: BOX_Y }));
-}
-function stageIdx(p) {
-  const age = (S.clock - p.born) * agingRate();
-  let idx = 0;
-  for (let i = 0; i < STAGES.length; i++) if (age >= STAGES[i].t) idx = i;
-  if (S.up.litter >= 2 && idx === 3) idx = 2; // 除臭猫砂跳过臭气
-  return idx;
-}
-const stageOf = p => STAGES[stageIdx(p)];
-function boxPoops(bi) { return S.poops.filter(p => p.loc.kind === 'box' && p.loc.box === bi); }
-function boxIsClean(bi) {
-  const ps = boxPoops(bi);
-  return ps.length < BOX_CAP && !ps.some(p => stageIdx(p) >= 3);
-}
-function cleanliness() {
-  let w = 0;
-  for (const p of S.poops) w += stageOf(p).w;
-  for (const m of S.mounts) w += m.maxhp * 0.4;
-  return clamp(1 - w / cleanThreshold(), 0, 1);
-}
-
-// ---------- 音效（WebAudio 合成） ----------
+// ---------- 音效 ----------
 let AC = null;
-function ac() {
-  if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
-  if (AC && AC.state === 'suspended') AC.resume();
-  return AC;
-}
-function noise(dur, vol, freq, q = 1, delay = 0) {
-  const a = ac(); if (!a) return;
-  const n = Math.floor(a.sampleRate * dur);
-  const buf = a.createBuffer(1, n, a.sampleRate);
-  const d = buf.getChannelData(0);
-  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
-  const src = a.createBufferSource(); src.buffer = buf;
-  const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q;
-  const g = a.createGain(); g.gain.value = vol;
-  src.connect(f); f.connect(g); g.connect(a.destination);
-  src.start(a.currentTime + delay);
-}
-function tone(freq, dur, type, vol, delay = 0, slide = 0) {
-  const a = ac(); if (!a) return;
-  const o = a.createOscillator(); o.type = type; o.frequency.value = freq;
-  if (slide) o.frequency.linearRampToValueAtTime(freq + slide, a.currentTime + delay + dur);
-  const g = a.createGain();
-  const t0 = a.currentTime + delay;
-  g.gain.setValueAtTime(0.0001, t0);
-  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.01);
-  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-  o.connect(g); g.connect(a.destination);
-  o.start(t0); o.stop(t0 + dur + 0.02);
-}
+function ac() { if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } } if (AC.state === 'suspended') AC.resume(); return AC; }
+function noise(dur, vol, freq, q = 1, delay = 0) { const a = ac(); if (!a) return; const n = Math.floor(a.sampleRate * dur); const b = a.createBuffer(1, n, a.sampleRate); const d = b.getChannelData(0); for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n); const s = a.createBufferSource(); s.buffer = b; const f = a.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = freq; f.Q.value = q; const g = a.createGain(); g.gain.value = vol; s.connect(f); f.connect(g); g.connect(a.destination); s.start(a.currentTime + delay); }
+function tone(freq, dur, type, vol, delay = 0) { const a = ac(); if (!a) return; const o = a.createOscillator(); o.type = type; o.frequency.value = freq; const g = a.createGain(); const t0 = a.currentTime + delay; g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + 0.01); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur); o.connect(g); g.connect(a.destination); o.start(t0); o.stop(t0 + dur + 0.02); }
 const SFX = {
-  scoop(stageKey) {
-    noise(0.14, 0.5, 2800, 0.8);                                   // 沙沙
-    if (stageKey === 'clump' || stageKey === 'fossil') tone(1400, 0.045, 'square', 0.12, 0.04); // 咔
-    if (stageKey === 'fresh') noise(0.08, 0.25, 900, 2, 0.02);
-  },
-  coin(combo) {
-    const f = 620 + Math.min(combo, 20) * 35;
-    tone(f, 0.11, 'sine', 0.22, 0.05);
-    tone(f * 1.5, 0.09, 'sine', 0.16, 0.11);
-  },
-  miss() { noise(0.08, 0.18, 1400, 1.5); },
-  chip() { noise(0.06, 0.35, 1800, 1.2); tone(300, 0.05, 'square', 0.08); },
-  boom() {
-    noise(0.55, 0.9, 220, 0.6); tone(70, 0.6, 'sine', 0.5, 0, -40);
-    for (let i = 0; i < 8; i++) tone(700 + i * 90, 0.1, 'sine', 0.14, 0.15 + i * 0.06);
-  },
-  purr() { tone(55, 0.35, 'sawtooth', 0.06); tone(58, 0.35, 'sawtooth', 0.05, 0.02); },
-  drop() { tone(880, 0.08, 'triangle', 0.2); tone(1320, 0.12, 'triangle', 0.18, 0.09); },
+  hit() { noise(0.1, 0.4, 2600, 0.8); },
+  crack() { noise(0.14, 0.5, 2200, 0.8); tone(1400, 0.04, 'square', 0.12, 0.03); },
+  coin(i) { tone(700 + i * 60, 0.1, 'sine', 0.18, 0.02 * i); },
+  crit() { noise(0.2, 0.6, 1800, 0.6); for (let i = 0; i < 5; i++) tone(900 + i * 120, 0.09, 'sine', 0.15, 0.05 + i * 0.05); },
+  miss() { noise(0.07, 0.15, 1300, 1.5); },
+  ui() { tone(880, 0.07, 'triangle', 0.15); tone(1320, 0.1, 'triangle', 0.12, 0.07); },
+  bad() { tone(220, 0.25, 'sawtooth', 0.15); tone(160, 0.35, 'sawtooth', 0.15, 0.12); },
+  win() { for (let i = 0; i < 6; i++) tone(600 + i * 110, 0.12, 'sine', 0.18, i * 0.07); },
 };
 
-// ---------- 运行时状态 ----------
-const cv = document.getElementById('cv');
-const ctx = cv.getContext('2d');
-let dpr = 1;
-function resize() {
-  dpr = Math.min(window.devicePixelRatio || 1, 2);
-  cv.width = W * dpr; cv.height = H * dpr;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
+// ---------- 运行时 ----------
+const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
+function resize() { const dpr = Math.min(window.devicePixelRatio || 1, 2); cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
 resize(); window.addEventListener('resize', resize);
+let D = null, running = false, lastT = 0;
+const ptr = { x: 240, y: 300, down: false, inside: false, moved: false };
 
-let D = null; // 当天运行时
-let running = false;
-let lastT = 0;
-
-function newDay() {
-  D = {
-    stamina: maxStamina(), cats: [], parts: [], floats: [],
-    combo: 0, lastHit: -9, scooped: 0, bestCombo: 0, earned: 0,
-    shake: 0, ring: null, autoT: 0, helperT: 0, over: false, endTimer: 0,
-    t: 0,
-  };
-  for (const type of S.cats) D.cats.push(makeCat(type));
+function newRun() {
+  D = { t: 0, stamina: maxStamina(), poops: [], cats: [], parts: [], floats: [], haul: 0, hits: 0, combo: 0, streak: 0, swingCd: 0, swingAnim: 0, freezeT: 0, freezeChance: 0, gambled: false, gambleMsg: '', spawnT: spawnInterval() * 0.5, over: false, endT: 0, shake: 0, hitCount: 0, critCount: 0, destroyed: 0 };
+  // 复利：每局开始按存款 5%
+  if (hasPerk('interest') && S.run.cash > 0) { const g = Math.round(S.run.cash * 0.05); S.run.cash += g; addFloat(240, 120, `复利 +${fmt(g)}`, '#ffcc4d', 16); }
+  for (let i = 0; i < START_POOPS + lv('start'); i++) spawnPoop(pick(S.run.unlocked), true);
 }
-function makeCat(type) {
-  const c = { id: uid++, type, x: rnd(60, 420), y: rnd(120, 480), tx: 0, ty: 0, state: 'wander', timer: rnd(0.5, 2), nextPoop: CATS[type].interval * rnd(0.6, 1.2), target: null, wob: rnd(0, 6) };
-  c.tx = c.x; c.ty = c.y; return c;
+function spawnPoop(type, instant) {
+  const T = CATS[type];
+  const x = rnd(TRAY.x + 40, TRAY.x + TRAY.w - 40), y = rnd(TRAY.y + 50, TRAY.y + TRAY.h - 40);
+  if (instant) { D.poops.push(mkPoop(T, type, x, y)); return; }
+  // 猫走进来拉
+  const fromLeft = Math.random() < 0.5;
+  D.cats.push({ type, x: fromLeft ? -30 : W + 30, y, tx: x, ty: y, state: 'in', timer: 0, wob: 0 });
 }
+function mkPoop(T, type, x, y) { return { id: uid++, type, x, y, hp: T.hp, maxhp: T.hp, shape: T.shape, color: T.color, size: T.size, driftT: rnd(1, 3), squash: 0 }; }
 
-// ---------- 猫行为 ----------
-function choosePoopTarget(cat) {
-  const T = CATS[cat.type];
-  const cleanBoxes = boxPositions().filter(b => boxIsClean(b.i));
-  const wantsBox = T.pref === 'box' || (T.pref === 'any' && Math.random() < 0.5);
-  if (wantsBox && cleanBoxes.length) return { kind: 'box', box: pick(cleanBoxes).i };
-  if (T.strict) return null; // 洁癖：没干净盆就憋着
-  if (T.pref !== 'box' && T.pref !== 'any') {
-    const s = SPOTS.find(s => s.id === T.pref);
-    return Math.random() < 0.7 ? { kind: 'spot', spot: s.id } : { kind: 'spot', spot: pick(SPOTS).id };
+function updateCats(dt) {
+  for (const c of D.cats) {
+    c.wob += dt * 8;
+    if (c.state === 'in') { const d = dist(c.x, c.y, c.tx, c.ty); const st = Math.min(d, 140 * dt); if (d < 2) { c.state = 'squat'; c.timer = 0.8; } else { c.x += (c.tx - c.x) / d * st; c.y += (c.ty - c.y) / d * st; } }
+    else if (c.state === 'squat') { c.timer -= dt; if (c.timer <= 0) { D.poops.push(mkPoop(CATS[c.type], c.type, c.tx, c.ty)); c.state = 'out'; c.ox = c.x < W / 2 ? -40 : W + 40; } }
+    else if (c.state === 'out') { const d = Math.abs(c.ox - c.x); c.x += Math.sign(c.ox - c.x) * Math.min(d, 160 * dt); if (d < 2) c.dead = true; }
   }
-  return { kind: 'spot', spot: pick(SPOTS).id };
+  D.cats = D.cats.filter(c => !c.dead);
 }
-function targetPos(t) {
-  if (t.kind === 'box') { const b = boxPositions()[t.box]; return { x: b.x, y: b.y - 30 }; }
-  const s = SPOTS.find(s => s.id === t.spot); return { x: s.x, y: s.y + 10 };
-}
-function updateCat(c, dt) {
-  const T = CATS[c.type];
-  c.wob += dt * 6;
-  if (c.state === 'wander') {
-    c.nextPoop -= dt;
-    if (c.nextPoop <= 0) {
-      const t = choosePoopTarget(c);
-      if (t) { c.target = t; const p = targetPos(t); c.tx = p.x + rnd(-6, 6); c.ty = p.y; c.state = 'walk'; }
-      else c.nextPoop = 2; // 憋着，两秒后再看
-    } else {
-      c.timer -= dt;
-      if (c.timer <= 0) { c.tx = rnd(50, 430); c.ty = rnd(120, 490); c.timer = rnd(1.5, 4); }
-      moveToward(c, 45, dt);
-    }
-  } else if (c.state === 'walk') {
-    if (moveToward(c, 90, dt)) { c.state = 'squat'; c.timer = 1.0; }
-  } else if (c.state === 'squat') {
-    c.timer -= dt;
-    if (c.timer <= 0) {
-      layPoop(c);
-      c.state = 'wander'; c.timer = rnd(1, 3);
-      c.nextPoop = T.interval * rnd(0.7, 1.3);
+function updatePoops(dt) {
+  if (D.freezeT > 0) { D.freezeT -= dt; return; }
+  for (const p of D.poops) {
+    p.squash = Math.max(0, p.squash - dt * 6);
+    if (!CATS[p.type].drift) continue;
+    p.driftT -= dt;
+    if (p.driftT <= 0) { // 猫刨砂：屎被踢一下
+      p.driftT = rnd(1.5, 3.5);
+      p.x = clamp(p.x + rnd(-40, 40), TRAY.x + 30, TRAY.x + TRAY.w - 30);
+      p.y = clamp(p.y + rnd(-25, 25), TRAY.y + 40, TRAY.y + TRAY.h - 30);
+      puff(p.x, p.y, 4, '#e8d9b0');
     }
   }
 }
-function moveToward(c, speed, dt) {
-  const d = dist(c.x, c.y, c.tx, c.ty);
-  if (d < 3) return true;
-  const step = Math.min(d, speed * dt);
-  c.x += (c.tx - c.x) / d * step; c.y += (c.ty - c.y) / d * step;
-  return d - step < 3;
-}
-function layPoop(c) {
-  const T = CATS[c.type];
-  const t = c.target; if (!t) return;
-  const n = T.burst || 1;
-  for (let k = 0; k < n; k++) {
-    if (t.kind === 'box') {
-      if (!boxIsClean(t.box)) break; // 走到一半盆已经满了，就不拉了（回去游荡）
-      const used = boxPoops(t.box).map(p => p.loc.slot);
-      const free = [0, 1, 2, 3].filter(i => !used.includes(i));
-      if (!free.length) break;
-      const slot = pick(free); const b = boxPositions()[t.box];
-      S.poops.push(mkPoop(T, b.x + BOX_SLOTS[slot][0], b.y + BOX_SLOTS[slot][1], { kind: 'box', box: t.box, slot }));
-    } else {
-      const s = SPOTS.find(s => s.id === t.spot);
-      const m = S.mounts.find(m => m.spot === s.id);
-      const val = T.value * T.size;
-      if (m) { m.hp += 2; m.maxhp += 2; m.val += val; m.count++; continue; }
-      const here = S.poops.filter(p => p.loc.kind === 'spot' && p.loc.spot === s.id);
-      if (here.length >= SPOT_CAP) { formMountain(s, here, val); continue; }
-      S.poops.push(mkPoop(T, s.x + rnd(-22, 22), s.y + rnd(-10, 16), { kind: 'spot', spot: s.id }));
-    }
-  }
-}
-function mkPoop(T, x, y, loc) {
-  return { id: uid++, x, y, shape: T.shape, color: T.color, size: T.size, val: T.value * T.size, born: S.clock, loc, hp: STAGES[5].hp, cat: T.name };
-}
-function formMountain(s, here, extraVal) {
-  const ids = new Set(here.map(p => p.id));
-  S.poops = S.poops.filter(p => !ids.has(p.id));
-  const val = here.reduce((a, p) => a + p.val, 0) + extraVal;
-  const count = here.length + 1;
-  S.mounts.push({ id: uid++, spot: s.id, x: s.x, y: s.y + 6, hp: count * 2, maxhp: count * 2, val, count, born: S.clock });
-  addFloat(s.x, s.y - 40, '屎山成形！', '#ffcc4d', 18);
-  D.shake = Math.max(D.shake, 4);
-}
 
-// ---------- 铲 ----------
-function scoopAt(x, y) {
-  if (!D || D.over) return;
-  const r = shovelRadius();
-  D.ring = { x, y, r, life: 0.25 };
-  const hitP = S.poops.filter(p => dist(x, y, p.x, p.y) <= r + 10 * p.size);
-  const hitM = S.mounts.filter(m => dist(x, y, m.x, m.y) <= r + 26);
-  if (!hitP.length && !hitM.length) { puff(x, y, 6, '#e8d9b0'); SFX.miss(); return; }
+// ---------- 悬停自动铲 ----------
+function updateSwing(dt) {
+  D.swingCd -= dt; D.swingAnim = Math.max(0, D.swingAnim - dt * 6);
+  const active = ptr.inside && (ptr.down || !('ontouchstart' in window));
+  if (!active || D.over) return;
+  if (ptr.moved) { D.stamina -= MOVE_DRAIN * drainMult() * dt; ptr.moved = false; }
+  if (D.swingCd > 0) return;
+  const r = radiusPx();
+  const targets = D.poops.filter(p => dist(ptr.x, ptr.y, p.x, p.y) <= r + 8 * p.size);
+  if (!targets.length) return;
   if (D.stamina <= 0) return;
-  D.stamina--;
-
-  // 连击
-  if (D.t - D.lastHit <= comboWindow()) D.combo++; else D.combo = 1;
-  D.lastHit = D.t;
-  D.bestCombo = Math.max(D.bestCombo, D.combo);
-  const cm = Math.min(1 + 0.1 * (D.combo - 1), comboCap());
-  let gained = 0, sfxStage = null, dropped = false;
-
-  for (const p of hitP) {
-    const st = stageOf(p);
-    sfxStage = sfxStage || st.key;
-    if (st.hp) {
-      p.hp--;
-      puff(p.x, p.y, 4, '#9a9a9a');
-      if (p.hp > 0) { SFX.chip(); addFloat(p.x, p.y - 14, `敲 ${p.hp}`, '#ddd', 13); continue; }
-    }
-    let v = p.val * st.mult * shovelMult() * cm;
-    if (st.key === 'clump' && S.up.shovel >= 2) v *= 1.3;
-    v = Math.max(1, Math.round(v));
-    gained += v;
-    removePoop(p);
-    puff(p.x, p.y, 8, p.color); puff(p.x, p.y, 6, '#e8d9b0');
-    coins(p.x, p.y, Math.min(6, 2 + Math.floor(v / 3)));
-    addFloat(p.x, p.y - 18, `+${v}`, '#fff3b0', 15 + Math.min(D.combo, 10));
-    if (st.drop) { S.col[st.drop]++; dropped = true; addFloat(p.x + 20, p.y - 34, st.drop === 'shroom' ? '🍄 收藏' : '🦴 化石', '#ffcc4d', 14); }
-  }
-  for (const m of hitM) {
-    const dmg = 1 + Math.floor(S.up.shovel / 2);
-    m.hp -= dmg;
-    puff(m.x + rnd(-20, 20), m.y + rnd(-20, 10), 6, '#6b3e1e');
-    if (m.hp > 0) { SFX.chip(); addFloat(m.x, m.y - 46, `${m.hp}/${m.maxhp}`, '#fff', 13); D.shake = Math.max(D.shake, 2); continue; }
-    const v = Math.max(1, Math.round(m.val * 1.3 * shovelMult() * cm));
-    gained += v;
-    S.mounts = S.mounts.filter(x => x.id !== m.id);
-    S.stats.mountains++;
-    coins(m.x, m.y - 10, 40); puff(m.x, m.y, 30, '#6b3e1e'); puff(m.x, m.y, 20, '#e8d9b0');
-    addFloat(m.x, m.y - 50, `屎山崩塌 +${v}`, '#ffcc4d', 24);
-    D.shake = Math.max(D.shake, 10);
-    SFX.boom();
-  }
-  if (gained > 0) {
-    S.cans += gained; D.earned += gained; S.stats.earned += gained;
-    D.scooped += hitP.filter(p => !S.poops.includes(p)).length;
-    SFX.scoop(sfxStage || 'clump'); SFX.coin(D.combo);
-    if (dropped) SFX.drop();
-    if (S.poops.length === 0 && S.mounts.length === 0) { SFX.purr(); addFloat(240, 110, '院子全干净 · 猫呼噜了', '#c8ffb0', 15); }
-    D.shake = Math.max(D.shake, 2);
-  } else if (hitP.length) { SFX.scoop('fossil'); }
-
-  if (D.stamina <= 0) { D.endTimer = 0.9; }
+  D.swingCd = 1 / speed(); D.swingAnim = 1;
+  D.stamina -= STAMINA_PER_SWING * drainMult();
+  if (hasPerk('recover')) D.stamina = Math.min(maxStamina(), D.stamina + 1);
+  D.hits++; D.streak++;
+  if (D.streak % 10 === 0) { D.combo++; addFloat(ptr.x, ptr.y - 50, `连击 ${D.combo}`, '#ffcc4d', 18); }
+  if (hasPerk('freeze')) { D.freezeChance += 0.01; if (Math.random() < D.freezeChance) { D.freezeT = 2.5; D.freezeChance = 0; addFloat(240, 110, '猫都睡了 · 2.5s', '#9fd8ff', 16); } }
+  const isCrit = Math.random() < critChance();
+  let dmg = dmgRoll(); if (isCrit) dmg = Math.round(dmg * critMult());
+  const p = targets.sort((a, b) => dist(ptr.x, ptr.y, a.x, a.y) - dist(ptr.x, ptr.y, b.x, b.y))[0];
+  p.hp -= dmg; p.squash = 1;
+  puff(p.x, p.y, 5, '#e8d9b0'); puff(p.x, p.y, 3, p.color);
+  addFloat(p.x + rnd(-10, 10), p.y - 24, `${isCrit ? '暴击 ' : ''}-${dmg}`, isCrit ? '#ffcc4d' : '#fff', isCrit ? 17 : 13);
+  if (isCrit) { D.critCount++; SFX.crit(); coins(p.x, p.y, hasPerk('critgold') ? 6 : 3, 0); D.shake = 4; }
+  if (p.hp <= 0) destroyPoop(p, isCrit); else (isCrit ? 0 : SFX.hit());
+  if (D.stamina <= 0) { D.stamina = 0; D.endT = 0.8; }
 }
-function removePoop(p) { S.poops = S.poops.filter(x => x.id !== p.id); }
-
-// 自动化
-function autoTick(dt) {
-  if (S.up.autobox > 0) {
-    D.autoT += dt;
-    const iv = 4 / (1 + 0.5 * (S.up.autobox - 1));
-    if (D.autoT >= iv) {
-      D.autoT = 0;
-      const ps = S.poops.filter(p => p.loc.kind === 'box').sort((a, b) => a.born - b.born);
-      if (ps.length) autoScoop(ps[0]);
-    }
-  }
-  if (S.up.helper > 0) {
-    D.helperT += dt;
-    const iv = 6 / (1 + 0.5 * (S.up.helper - 1));
-    if (D.helperT >= iv) {
-      D.helperT = 0;
-      const ps = S.poops.filter(p => p.loc.kind === 'spot').sort((a, b) => a.born - b.born);
-      if (ps.length) autoScoop(ps[0]);
-      else if (S.mounts.length) { const m = S.mounts[0]; m.hp--; puff(m.x, m.y, 4, '#6b3e1e'); if (m.hp <= 0) { const v = Math.round(m.val * 0.5); S.cans += v; D.earned += v; S.mounts = S.mounts.filter(x => x !== m); coins(m.x, m.y, 12); addFloat(m.x, m.y - 40, `帮工清山 +${v}`, '#cde', 14); } }
-    }
-  }
+function rollLoot(T) {
+  let tier = 0; const r = Math.random(); let acc = 0;
+  for (let i = 0; i < T.loot.length; i++) { acc += T.loot[i][0]; if (r < acc) { tier = i; break; } }
+  if (Math.random() < luck()) tier = Math.min(T.loot.length - 1, tier + 1);
+  if (S.run.nextLuck >= 1) tier = T.loot.length - 1;
+  const t = T.loot[tier];
+  return { v: rint(t[1], t[2]), tier };
 }
-function autoScoop(p) {
-  const st = stageOf(p);
-  const v = Math.max(1, Math.round(p.val * st.mult * 0.5));
-  S.cans += v; D.earned += v; S.stats.earned += v;
-  removePoop(p); puff(p.x, p.y, 4, p.color); addFloat(p.x, p.y - 14, `+${v}`, '#cde', 12);
-  if (st.drop) S.col[st.drop]++;
+function destroyPoop(p, crit) {
+  const T = CATS[p.type];
+  const { v, tier } = rollLoot(T);
+  let gain = Math.round(v * lootMult()) + (crit && hasPerk('critgold') ? 1 : 0);
+  D.haul += gain; S.run.cash += gain; D.destroyed++;
+  D.poops = D.poops.filter(x => x.id !== p.id);
+  puff(p.x, p.y, 10, p.color); puff(p.x, p.y, 8, '#e8d9b0');
+  coins(p.x, p.y, Math.min(24, 3 + Math.floor(gain / 2)), gain);
+  addFloat(p.x, p.y - 34, `+${fmt(gain)}`, tier === 2 ? '#ff9de2' : tier === 1 ? '#ffcc4d' : '#fff3b0', 15 + tier * 4);
+  if (tier === 2) { addFloat(p.x, p.y - 56, '大奖！', '#ff9de2', 20); D.shake = 8; SFX.win(); } else SFX.crack();
+  if (T.restore) { D.stamina = Math.min(maxStamina(), D.stamina + T.restore); addFloat(p.x, p.y - 12, `体力 +${T.restore}`, '#7ee081', 13); }
 }
 
-// ---------- 粒子 / 浮字 ----------
-function puff(x, y, n, color) {
-  for (let i = 0; i < n; i++) D.parts.push({ x, y, vx: rnd(-90, 90), vy: rnd(-160, -40), g: 320, life: rnd(0.35, 0.7), r: rnd(2, 4.5), color, kind: 'dot' });
-}
-function coins(x, y, n) {
-  for (let i = 0; i < n; i++) D.parts.push({ x, y, vx: rnd(-140, 140), vy: rnd(-300, -120), g: 420, life: rnd(0.6, 1.1), r: 7, color: '#ffcc4d', kind: 'coin', rot: rnd(0, 6) });
-}
-function addFloat(x, y, txt, color, size) { D.floats.push({ x, y, txt, color, size, life: 1.0 }); }
+// ---------- 粒子 ----------
+function puff(x, y, n, color) { for (let i = 0; i < n; i++) D.parts.push({ x, y, vx: rnd(-90, 90), vy: rnd(-160, -40), g: 320, life: rnd(0.3, 0.6), r: rnd(2, 4), color, kind: 'dot' }); }
+function coins(x, y, n) { for (let i = 0; i < n; i++) { D.parts.push({ x, y, vx: rnd(-160, 160), vy: rnd(-320, -140), g: 520, life: rnd(0.7, 1.1), r: 6, kind: Math.random() < 0.15 ? 'gem' : 'coin', rot: rnd(0, 6) }); if (i < 6) SFX.coin(i); } }
+function addFloat(x, y, txt, color, size) { D.floats.push({ x, y, txt, color, size, life: 1 }); }
 
 // ---------- 主循环 ----------
 function update(dt) {
   D.t += dt;
   if (!D.over) {
-    S.clock += dt;
-    for (const c of D.cats) updateCat(c, dt);
-    autoTick(dt);
-    if (D.endTimer > 0) { D.endTimer -= dt; if (D.endTimer <= 0) endDay(); }
+    updateCats(dt); updatePoops(dt); updateSwing(dt);
+    D.spawnT -= dt; if (D.spawnT <= 0) { D.spawnT = spawnInterval(); if (D.poops.length + D.cats.length < 12) spawnPoop(pick(S.run.unlocked), false); }
+    if (D.endT > 0) { D.endT -= dt; if (D.endT <= 0) endRun(); }
   }
-  for (const p of D.parts) { p.life -= dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.rot !== undefined) p.rot += dt * 8; }
+  for (const p of D.parts) { p.life -= dt; p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; if (p.rot !== undefined) p.rot += dt * 9; }
   D.parts = D.parts.filter(p => p.life > 0);
-  for (const f of D.floats) { f.life -= dt * 0.9; f.y -= 40 * dt; }
+  for (const f of D.floats) { f.life -= dt; f.y -= 40 * dt; }
   D.floats = D.floats.filter(f => f.life > 0);
-  if (D.ring) { D.ring.life -= dt; if (D.ring.life <= 0) D.ring = null; }
   D.shake = Math.max(0, D.shake - dt * 30);
-  if (D.combo > 0 && D.t - D.lastHit > comboWindow() * 2) D.combo = 0;
 }
-
 function draw() {
   ctx.save();
   if (D.shake > 0) ctx.translate(rnd(-D.shake, D.shake) * 0.5, rnd(-D.shake, D.shake) * 0.5);
-  drawYard();
+  // 背景 + 猫砂盘
+  const g = ctx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#5a8f3a'); g.addColorStop(1, '#3f6a2c'); ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#7a8aa0'; roundRect(TRAY.x, TRAY.y, TRAY.w, TRAY.h, 18); ctx.fill();
+  ctx.fillStyle = D.freezeT > 0 ? '#dbe9f5' : '#efe3c2'; roundRect(TRAY.x + 10, TRAY.y + 10, TRAY.w - 20, TRAY.h - 20, 12); ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,.08)'; for (let i = 0; i < 90; i++) ctx.fillRect(TRAY.x + 16 + (i * 53) % (TRAY.w - 32), TRAY.y + 16 + (i * 37) % (TRAY.h - 32), 2, 2);
   const items = [];
-  for (const p of S.poops) items.push({ y: p.y, f: () => drawPoop(p) });
-  for (const m of S.mounts) items.push({ y: m.y + 20, f: () => drawMountain(m) });
-  for (const c of D.cats) items.push({ y: c.y + 12, f: () => drawCat(c) });
+  for (const p of D.poops) items.push({ y: p.y, f: () => drawPoop(p) });
+  for (const c of D.cats) items.push({ y: c.y + 10, f: () => drawCat(c) });
   items.sort((a, b) => a.y - b.y).forEach(i => i.f());
   drawParticles();
-  if (D.ring) {
-    ctx.strokeStyle = `rgba(255,255,255,${D.ring.life * 2.5})`; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(D.ring.x, D.ring.y, D.ring.r * (1 + (0.25 - D.ring.life)), 0, Math.PI * 2); ctx.stroke();
-  }
-  for (const f of D.floats) {
-    ctx.globalAlpha = clamp(f.life * 1.5, 0, 1);
-    ctx.font = `700 ${f.size}px -apple-system, "PingFang SC", sans-serif`;
-    ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.5)';
-    ctx.strokeText(f.txt, f.x, f.y); ctx.fillStyle = f.color; ctx.fillText(f.txt, f.x, f.y);
-    ctx.globalAlpha = 1;
-  }
-  if (D.combo >= 2) {
-    const s = 22 + Math.min(D.combo, 15) * 1.2;
-    ctx.font = `900 ${s}px -apple-system, "PingFang SC", sans-serif`; ctx.textAlign = 'center';
-    ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(60,30,0,.6)'; ctx.strokeText(`连击 ×${D.combo}`, 240, 60);
-    ctx.fillStyle = '#ffcc4d'; ctx.fillText(`连击 ×${D.combo}`, 240, 60);
-  }
-  if (D.over) {
-    ctx.fillStyle = 'rgba(0,0,0,.25)'; ctx.fillRect(0, 0, W, H);
-  }
+  for (const f of D.floats) { ctx.globalAlpha = clamp(f.life * 1.5, 0, 1); ctx.font = `700 ${f.size}px -apple-system,"PingFang SC",sans-serif`; ctx.textAlign = 'center'; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.strokeText(f.txt, f.x, f.y); ctx.fillStyle = f.color; ctx.fillText(f.txt, f.x, f.y); ctx.globalAlpha = 1; }
+  if (ptr.inside && !D.over) drawShovel();
+  // 底部信息条
+  ctx.fillStyle = 'rgba(0,0,0,.35)'; roundRect(20, 486, 440, 134, 14); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = '700 15px -apple-system,"PingFang SC",sans-serif';
+  const b = curBill();
+  ctx.fillText(`账单 ${S.run.billIdx + 1}：${b.name}  ${fmt(b.amt)}`, 36, 512);
+  ctx.font = '13px -apple-system,"PingFang SC",sans-serif'; ctx.fillStyle = S.run.billDue <= 0 ? '#ff8a80' : '#ffe08a';
+  ctx.fillText(S.run.billDue <= 0 ? '今天收工就要付，付不出就破产' : `${S.run.billDue} 天后到期`, 36, 532);
+  ctx.fillStyle = 'rgba(255,255,255,.85)';
+  const sh = shovel();
+  ctx.fillText(`${sh.name} · 铲力 ${sh.dmg[0] + lv('dmg')}–${sh.dmg[1] + lv('dmg')} · 铲速 ${speed().toFixed(2)}/s · 铲口 ${(radiusPx() / PX_PER_UNIT).toFixed(1)} · 暴击 ${Math.round(critChance() * 100)}%`, 36, 556);
+  ctx.fillText(`本局所得 ${fmt(D.haul)} · 铲了 ${D.hits} 下 · 连击 ${D.combo}${D.freezeT > 0 ? ' · ❄ 猫都睡了' : ''}`, 36, 578);
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '12px -apple-system,"PingFang SC",sans-serif';
+  ctx.fillText(('ontouchstart' in window) ? '手指按住拖到屎上，自动铲' : '鼠标移到屎上，自动铲 · 不用点', 36, 604);
+  if (D.over) { ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(0, 0, W, H); }
   ctx.restore();
 }
-
-function drawYard() {
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, '#5a8f3a'); g.addColorStop(1, '#3f6a2c');
-  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  // 草纹
-  ctx.fillStyle = 'rgba(255,255,255,.05)';
-  for (let i = 0; i < 40; i++) { const x = (i * 97) % W, y = 90 + (i * 53) % 420; ctx.fillRect(x, y, 14, 3); }
-  // 点位
-  for (const s of SPOTS) {
-    ctx.fillStyle = 'rgba(0,0,0,.08)'; ctx.beginPath(); ctx.ellipse(s.x, s.y + 12, 42, 16, 0, 0, Math.PI * 2); ctx.fill();
-    if (s.emoji) { ctx.font = '30px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#000'; ctx.fillText(s.emoji, s.x, s.y - 14); }
-    ctx.font = '11px -apple-system, "PingFang SC", sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillText(s.name, s.x, s.y + 36);
-  }
-  // 猫砂盆
-  for (const b of boxPositions()) {
-    const clean = boxIsClean(b.i);
-    ctx.fillStyle = '#7a8aa0'; roundRect(b.x - BOX_W / 2, b.y - BOX_H / 2, BOX_W, BOX_H, 12); ctx.fill();
-    ctx.fillStyle = clean ? '#efe3c2' : '#d9c9a2'; roundRect(b.x - BOX_W / 2 + 8, b.y - BOX_H / 2 + 8, BOX_W - 16, BOX_H - 16, 8); ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,.12)';
-    for (let i = 0; i < 18; i++) { const x = b.x - BOX_W / 2 + 12 + ((i * 37) % (BOX_W - 24)), y = b.y - BOX_H / 2 + 12 + ((i * 23) % (BOX_H - 24)); ctx.fillRect(x, y, 2, 2); }
-    if (!clean) { ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.fillText('猫不肯用', b.x, b.y - BOX_H / 2 - 6); }
-  }
+function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+function drawShovel() {
+  const r = radiusPx();
+  ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5; ctx.setLineDash([4, 4]); ctx.beginPath(); ctx.arc(ptr.x, ptr.y, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.save(); ctx.translate(ptr.x + 18, ptr.y - 18); ctx.rotate(-0.6 + D.swingAnim * 1.1);
+  ctx.fillStyle = '#c9962c'; ctx.fillRect(-3, -46, 6, 46);
+  ctx.fillStyle = '#9aa7b5'; roundRect(-14, -4, 28, 18, 5); ctx.fill(); ctx.strokeStyle = '#5c6b7a'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = 'rgba(0,0,0,.25)'; for (let i = -8; i <= 8; i += 8) ctx.fillRect(i - 1, 2, 2, 10);
+  ctx.restore();
 }
-function roundRect(x, y, w, h, r) {
-  ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
-}
-
-// 屎：形状 × 阶段 × 可爱脸
 function drawPoop(p) {
-  const si = stageIdx(p), st = STAGES[si];
-  const s = 10 * p.size;
-  const isFossil = st.key === 'fossil';
-  const base = isFossil ? '#a8a29a' : p.color;
-  const dark = isFossil ? '#7d776f' : shade(p.color, -25);
-  ctx.save(); ctx.translate(p.x, p.y);
-  // 阴影
+  const s = 10 * p.size, sq = 1 - p.squash * 0.18;
+  ctx.save(); ctx.translate(p.x, p.y); ctx.scale(1 + p.squash * 0.12, sq);
   ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(0, s * 0.9, s * 1.2, s * 0.35, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = base; ctx.strokeStyle = dark; ctx.lineWidth = 1.5;
-  let faceY = -s * 0.2;
-  if (p.shape === 'swirl') {
-    blob(0, s * 0.35, s * 1.25, s * 0.7); blob(0, -s * 0.15, s * 0.95, s * 0.6); blob(0, -s * 0.6, s * 0.6, s * 0.45);
-    ctx.beginPath(); ctx.moveTo(s * 0.1, -s * 1.0); ctx.quadraticCurveTo(s * 0.5, -s * 1.5, s * 0.15, -s * 1.55); ctx.lineWidth = 3; ctx.stroke();
-    faceY = -s * 0.05;
-  } else if (p.shape === 'ball') {
-    ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); faceY = -s * 0.1;
-  } else if (p.shape === 'log') {
-    roundRect(-s * 1.5, -s * 0.55, s * 3, s * 1.1, s * 0.55); ctx.fill(); ctx.stroke(); faceY = -s * 0.05;
-  } else if (p.shape === 'cube') {
-    roundRect(-s * 0.85, -s * 0.85, s * 1.7, s * 1.7, s * 0.3); ctx.fill(); ctx.stroke(); faceY = -s * 0.15;
-  } else { // bean
-    ctx.beginPath(); ctx.ellipse(0, 0, s * 1.1, s * 0.75, -0.4, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); faceY = -s * 0.1;
-  }
+  ctx.fillStyle = p.color; ctx.strokeStyle = shade(p.color, -25); ctx.lineWidth = 1.5;
+  let fy = -s * 0.1;
+  if (p.shape === 'swirl') { blob(0, s * 0.35, s * 1.25, s * 0.7); blob(0, -s * 0.15, s * 0.95, s * 0.6); blob(0, -s * 0.6, s * 0.6, s * 0.45); ctx.beginPath(); ctx.moveTo(s * 0.1, -s); ctx.quadraticCurveTo(s * 0.5, -s * 1.5, s * 0.15, -s * 1.55); ctx.lineWidth = 3; ctx.stroke(); fy = -s * 0.05; }
+  else if (p.shape === 'log') { roundRect(-s * 1.5, -s * 0.55, s * 3, s * 1.1, s * 0.55); ctx.fill(); ctx.stroke(); }
+  else { ctx.beginPath(); ctx.arc(0, 0, s, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+  // 裂纹 = 血量
+  const dmgRatio = 1 - p.hp / p.maxhp;
+  if (dmgRatio > 0) { ctx.strokeStyle = 'rgba(40,20,5,.7)'; ctx.lineWidth = 1.2; const n = Math.ceil(dmgRatio * 4); for (let i = 0; i < n; i++) { const a = i * 1.7 + p.id; ctx.beginPath(); ctx.moveTo(Math.cos(a) * s * 0.2, Math.sin(a) * s * 0.2); ctx.lineTo(Math.cos(a) * s * 0.9, Math.sin(a) * s * 0.7); ctx.stroke(); } }
   // 脸
-  const ex = s * 0.32, ey = faceY;
-  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-ex, ey, s * 0.2, 0, Math.PI * 2); ctx.arc(ex, ey, s * 0.2, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(-ex + 1, ey, s * 0.1, 0, Math.PI * 2); ctx.arc(ex + 1, ey, s * 0.1, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#222'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(0, ey + s * 0.15, s * 0.28, 0.2, Math.PI - 0.2); ctx.stroke();
-  // 阶段装饰
-  const t = D.t;
-  if (st.key === 'fresh') {
-    ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 1.5;
-    for (let i = -1; i <= 1; i++) { const ph = t * 3 + i; ctx.beginPath(); ctx.moveTo(i * s * 0.5, -s * 1.2); ctx.quadraticCurveTo(i * s * 0.5 + Math.sin(ph) * 3, -s * 1.7, i * s * 0.5, -s * 2.1 - (Math.sin(ph) * 2)); ctx.stroke(); }
-  } else if (st.key === 'clump') {
-    ctx.fillStyle = 'rgba(240,228,190,.95)';
-    for (let i = 0; i < 7; i++) { const a = i * 0.9, r = s * 0.75; ctx.beginPath(); ctx.arc(Math.cos(a) * r, Math.sin(a) * r * 0.7, 1.8, 0, Math.PI * 2); ctx.fill(); }
-  } else if (st.key === 'flies') {
-    ctx.fillStyle = '#111';
-    for (let i = 0; i < 2; i++) { const a = t * 5 + i * Math.PI + p.id; const fx = Math.cos(a) * s * 1.3, fy = -s * 1.4 + Math.sin(a * 1.7) * s * 0.4; ctx.beginPath(); ctx.arc(fx, fy, 2, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(fx - 3, fy - 2, 6, 1); }
-  } else if (st.key === 'stink') {
-    ctx.strokeStyle = 'rgba(140,220,90,.8)'; ctx.lineWidth = 2;
-    for (let i = -1; i <= 1; i++) { ctx.beginPath(); for (let k = 0; k <= 8; k++) { const y = -s * 1.1 - k * 3 - ((t * 20 + i * 7) % 8); const x = i * s * 0.55 + Math.sin(k * 0.9 + t * 4 + i) * 3; k ? ctx.lineTo(x, y) : ctx.moveTo(x, y); } ctx.stroke(); }
-  } else if (st.key === 'shroom') {
-    ctx.fillStyle = '#f5efe0'; ctx.fillRect(-2, -s * 1.6, 4, s * 0.7);
-    ctx.fillStyle = '#e2493d'; ctx.beginPath(); ctx.arc(0, -s * 1.6, s * 0.55, Math.PI, 0); ctx.fill();
-    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-s * 0.2, -s * 1.8, 1.6, 0, Math.PI * 2); ctx.arc(s * 0.22, -s * 1.7, 1.3, 0, Math.PI * 2); ctx.fill();
-  } else if (isFossil) {
-    ctx.strokeStyle = '#5f5a52'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(-s * 0.6, s * 0.2); ctx.lineTo(-s * 0.2, -s * 0.1); ctx.lineTo(0, s * 0.4); ctx.moveTo(s * 0.3, -s * 0.5); ctx.lineTo(s * 0.55, s * 0.1); ctx.stroke();
-    if (p.hp < STAGES[5].hp) { ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.fillText(`${p.hp}`, 0, -s * 1.3); }
-  }
+  const ex = s * 0.32;
+  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-ex, fy, s * 0.2, 0, Math.PI * 2); ctx.arc(ex, fy, s * 0.2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(-ex + 1, fy, s * 0.1, 0, Math.PI * 2); ctx.arc(ex + 1, fy, s * 0.1, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 1.2; ctx.beginPath(); if (p.squash > 0.3) { ctx.arc(0, fy + s * 0.3, s * 0.22, Math.PI + 0.3, -0.3); } else ctx.arc(0, fy + s * 0.15, s * 0.28, 0.2, Math.PI - 0.2); ctx.stroke();
+  if (D.freezeT > 0) { ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('💤', s * 0.9, -s * 0.9); }
+  // 血条
+  if (p.hp < p.maxhp) { ctx.fillStyle = 'rgba(0,0,0,.45)'; roundRect(-s * 1.2, -s * 1.9, s * 2.4, 5, 2); ctx.fill(); ctx.fillStyle = '#ff6b5a'; roundRect(-s * 1.2, -s * 1.9, s * 2.4 * (p.hp / p.maxhp), 5, 2); ctx.fill(); }
   ctx.restore();
-
   function blob(x, y, rx, ry) { ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
 }
-function shade(hex, amt) {
-  const n = parseInt(hex.slice(1), 16);
-  const r = clamp((n >> 16) + amt, 0, 255), g = clamp(((n >> 8) & 255) + amt, 0, 255), b = clamp((n & 255) + amt, 0, 255);
-  return `rgb(${r},${g},${b})`;
-}
-function drawMountain(m) {
-  const k = 1 + Math.min(m.count, 20) * 0.05;
-  const w = 46 * k, h = 40 * k;
-  ctx.save(); ctx.translate(m.x, m.y);
-  ctx.fillStyle = 'rgba(0,0,0,.2)'; ctx.beginPath(); ctx.ellipse(0, h * 0.35, w * 1.1, 10, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#6b3e1e'; ctx.strokeStyle = '#4a2a12'; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(-w, h * 0.3); ctx.quadraticCurveTo(-w * 0.6, -h * 0.2, -w * 0.25, -h * 0.55); ctx.quadraticCurveTo(0, -h * 1.1, w * 0.25, -h * 0.55); ctx.quadraticCurveTo(w * 0.6, -h * 0.2, w, h * 0.3); ctx.closePath(); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#7d4a25'; ctx.beginPath(); ctx.ellipse(-w * 0.3, -h * 0.1, w * 0.25, h * 0.18, 0, 0, Math.PI * 2); ctx.ellipse(w * 0.3, 0, w * 0.22, h * 0.15, 0, 0, Math.PI * 2); ctx.fill();
-  // 脸（屎山也可爱）
-  ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-9, -h * 0.5, 5, 0, Math.PI * 2); ctx.arc(9, -h * 0.5, 5, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(-8, -h * 0.5, 2.5, 0, Math.PI * 2); ctx.arc(10, -h * 0.5, 2.5, 0, Math.PI * 2); ctx.fill();
-  ctx.strokeStyle = '#222'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, -h * 0.42, 7, 0.2, Math.PI - 0.2); ctx.stroke();
-  // 苍蝇
-  ctx.fillStyle = '#111';
-  for (let i = 0; i < 3; i++) { const a = D.t * 4 + i * 2.1; ctx.beginPath(); ctx.arc(Math.cos(a) * w * 0.8, -h * 0.9 + Math.sin(a * 1.6) * 8, 2, 0, Math.PI * 2); ctx.fill(); }
-  // 血条
-  ctx.fillStyle = 'rgba(0,0,0,.5)'; roundRect(-w * 0.8, -h - 18, w * 1.6, 8, 4); ctx.fill();
-  ctx.fillStyle = '#ff6b5a'; roundRect(-w * 0.8, -h - 18, w * 1.6 * (m.hp / m.maxhp), 8, 4); ctx.fill();
-  ctx.font = '700 12px -apple-system, "PingFang SC", sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff';
-  ctx.fillText(`屎山 ${m.count} 坨`, 0, -h - 24);
-  ctx.restore();
-}
+function shade(hex, amt) { const n = parseInt(hex.slice(1), 16); return `rgb(${clamp((n >> 16) + amt, 0, 255)},${clamp(((n >> 8) & 255) + amt, 0, 255)},${clamp((n & 255) + amt, 0, 255)})`; }
 function drawCat(c) {
   const T = CATS[c.type];
   ctx.save(); ctx.translate(c.x, c.y);
-  const sq = c.state === 'squat';
-  const wob = c.state === 'walk' || (c.state === 'wander' && dist(c.x, c.y, c.tx, c.ty) > 3) ? Math.sin(c.wob) * 2 : 0;
   ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(0, 14, 16, 5, 0, 0, Math.PI * 2); ctx.fill();
-  ctx.font = `${sq ? 26 : 30}px sans-serif`; ctx.textAlign = 'center';
-  ctx.fillStyle = '#000';
-  if (sq) ctx.translate(Math.sin(D.t * 30) * 1.5, 4);
-  ctx.fillText(T.emoji, 0, 10 + wob);
-  if (sq) { ctx.font = '13px sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText('…', 0, -22); }
-  ctx.font = '10px -apple-system, "PingFang SC", sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.fillText(T.name, 0, 26);
+  ctx.font = '30px sans-serif'; ctx.textAlign = 'center';
+  if (c.state === 'squat') ctx.translate(Math.sin(D.t * 30) * 1.5, 4);
+  ctx.fillText(T.emoji, 0, 10 + (c.state === 'squat' ? 0 : Math.sin(c.wob) * 2));
+  ctx.font = '10px -apple-system,"PingFang SC",sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillText(T.name, 0, 26);
   ctx.restore();
 }
 function drawParticles() {
   for (const p of D.parts) {
     ctx.globalAlpha = clamp(p.life * 2, 0, 1);
-    if (p.kind === 'coin') {
-      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-      ctx.fillStyle = '#ffcc4d'; ctx.beginPath(); ctx.ellipse(0, 0, p.r, p.r * 0.7, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#e0a52c'; ctx.beginPath(); ctx.ellipse(0, 0, p.r * 0.6, p.r * 0.4, 0, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
-    } else {
-      ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
-    }
+    if (p.kind === 'coin') { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = '#ffcc4d'; ctx.beginPath(); ctx.ellipse(0, 0, p.r, p.r * 0.7, 0, 0, Math.PI * 2); ctx.fill(); ctx.fillStyle = '#e0a52c'; ctx.beginPath(); ctx.ellipse(0, 0, p.r * 0.6, p.r * 0.4, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore(); }
+    else if (p.kind === 'gem') { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = '#7fd8ff'; ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(6, 0); ctx.lineTo(0, 7); ctx.lineTo(-6, 0); ctx.closePath(); ctx.fill(); ctx.restore(); }
+    else { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
   }
   ctx.globalAlpha = 1;
 }
@@ -586,101 +327,138 @@ function drawParticles() {
 // ---------- HUD ----------
 const $ = id => document.getElementById(id);
 function hud() {
-  $('hud-day').textContent = `第 ${S.day} 天`;
-  $('hud-cans').textContent = `🥫 ${S.cans}`;
-  $('hud-cats').textContent = `🐈 ${S.cats.length}/${catCap()}`;
-  const st = D ? D.stamina : maxStamina();
-  $('bar-stamina').style.width = `${(st / maxStamina()) * 100}%`;
-  $('txt-stamina').textContent = `${st}`;
-  const cl = cleanliness();
-  $('bar-clean').style.width = `${cl * 100}%`;
-  $('txt-clean').textContent = `${Math.round(cl * 100)}%`;
-  $('combo-hint').textContent = D && D.combo >= 2 ? `连击 ×${D.combo} · 倍率 ×${Math.min(1 + 0.1 * (D.combo - 1), comboCap()).toFixed(1)}` : (S.poops.length + S.mounts.length ? `院子里 ${S.poops.length} 坨${S.mounts.length ? ` + ${S.mounts.length} 座屎山` : ''}` : '院子干净 · 等猫来');
+  $('hud-day').textContent = `第 ${S.cycle} 周目 · 第 ${S.run.day} 天`;
+  $('hud-cans').textContent = fmt(S.run.cash);
+  $('hud-cats').textContent = `💍 ${S.lp} 点`;
+  const st = D ? Math.max(0, D.stamina) : maxStamina();
+  $('bar-stamina').style.width = `${(st / maxStamina()) * 100}%`; $('txt-stamina').textContent = `${Math.ceil(st)}`;
+  const b = curBill(); const pct = clamp(S.run.cash / b.amt, 0, 1);
+  $('bar-clean').style.width = `${pct * 100}%`; $('txt-clean').textContent = `${Math.round(pct * 100)}%`;
+  $('combo-hint').textContent = D && !D.over ? `盘里 ${D.poops.length} 坨` : '';
 }
 
-// ---------- 一天的开始与结束 ----------
-function startDay() {
-  newDay(); running = true; lastT = performance.now();
-  $('dayend').classList.add('hidden');
-  $('btn-endday').disabled = false;
-}
-function endDay() {
+// ---------- 结算 ----------
+function startRun() { newRun(); running = true; $('dayend').classList.add('hidden'); $('btn-endday').disabled = false; save(); }
+function endRun() {
   if (!D || D.over) return;
   D.over = true; $('btn-endday').disabled = true;
-  const clean = cleanliness();
-  const msgs = [];
-  const gain = clean >= 0.7 || (S.day <= 3 && clean >= 0.5);
-  if (gain) {
-    if (S.cats.length < catCap()) {
-      const avail = CAT_ORDER.filter(t => CATS[t].minDay <= S.day + 1);
-      const unseen = avail.filter(t => !S.cats.includes(t));
-      const t = unseen.length && Math.random() < 0.75 ? pick(unseen) : pick(avail);
-      S.cats.push(t);
-      msgs.push(`清洁度 ${Math.round(clean * 100)}%，一只${CATS[t].name}被吸引来了 ${CATS[t].emoji}`);
-    } else msgs.push(`清洁度 ${Math.round(clean * 100)}%，后院满了，新猫在围墙外张望（扩建后院）`);
-  } else if (clean < 0.3 && S.cats.length > 1) {
-    const t = S.cats.pop();
-    msgs.push(`清洁度只有 ${Math.round(clean * 100)}%，${CATS[t].name}嫌脏搬走了…`);
-  } else msgs.push(`清洁度 ${Math.round(clean * 100)}%。猫们观望中，≥70% 才会来新猫。`);
-  if (S.mounts.length) msgs.push(`院子里有 ${S.mounts.length} 座屎山，明天敲塌它有大奖。`);
-  S.stats.scooped += D.scooped; S.stats.bestCombo = Math.max(S.stats.bestCombo, D.bestCombo);
-
-  $('de-title').textContent = `第 ${S.day} 天 · 收工`;
-  $('de-summary').innerHTML = `<div>铲了 <b>${D.scooped}</b> 坨</div><div>赚了 <b>🥫 ${D.earned}</b></div><div>最高连击 <b>×${D.bestCombo}</b></div><div>收藏 🍄 <b>${S.col.shroom}</b> · 🦴 <b>${S.col.fossil}</b></div>`;
-  $('de-cats').textContent = msgs.join(' ');
-  S.day++;
-  save();
-  renderShop();
+  S.run.nextMult = 1; S.run.nextLuck = 0;
+  S.stats.best = Math.max(S.stats.best, D.haul);
+  renderSettle();
   $('dayend').classList.remove('hidden');
 }
-function renderShop() {
-  $('de-cans').textContent = `🥫 ${S.cans}`;
-  const el = $('shop'); el.innerHTML = '';
-  for (const it of SHOP) {
-    const lv = S.up[it.id];
-    const maxed = lv >= it.max;
-    const cost = shopCost(it);
-    const desc = it.levels ? (maxed ? it.levels[lv] : `→ ${it.levels[lv + 1]}`) : it.desc;
-    const row = document.createElement('div'); row.className = 'item' + (maxed ? ' max' : '');
-    row.innerHTML = `<div class="ico">${it.ico}</div><div class="info"><div class="name">${it.name} <span style="opacity:.5">Lv.${lv}</span></div><div class="desc">${desc}</div></div>`;
-    const btn = document.createElement('button');
-    btn.textContent = maxed ? '已满' : `🥫 ${cost}`;
-    btn.disabled = maxed || S.cans < cost;
-    btn.onclick = () => { if (S.cans >= cost && !maxed) { S.cans -= cost; S.up[it.id]++; SFX.drop(); save(); renderShop(); hud(); } };
+function renderSettle() {
+  $('de-title').textContent = `第 ${S.run.day} 天 · 收工`;
+  const b = curBill(); const canPay = S.run.cash >= b.amt;
+  let html = `<div class="summary"><div>本局所得 <b>${fmt(D.haul)}</b></div><div>存款 <b>${fmt(S.run.cash)}</b></div><div>铲了 <b>${D.hits}</b> 下 · 暴击 <b>${D.critCount}</b></div><div>铲净 <b>${D.destroyed}</b> 坨 · 连击 <b>${D.combo}</b></div></div>`;
+  // 赌局
+  if (!D.gambled && D.haul > 0) html += `<div class="sect"><div class="sect-t">🪙 猫推硬币 <span class="sub">Double or Nothing · 押本局所得 ${fmt(D.haul)} · 50/50</span></div><button class="ghost" id="btn-flip">让猫推一下</button></div>`;
+  else if (D.gambleMsg) html += `<div class="sect"><div class="sect-t">${D.gambleMsg}</div></div>`;
+  // 账单
+  html += `<div class="sect bill ${S.run.billDue <= 0 && !canPay ? 'danger' : ''}"><div class="sect-t">🧾 账单 ${S.run.billIdx + 1}：${b.name} <b>${fmt(b.amt)}</b> <span class="sub">${S.run.billDue <= 0 ? '今天到期' : `${S.run.billDue} 天后到期`}${S.run.billDue > 0 ? ` · 现在付=提前 ${S.run.billDue} 天，下一张到期日提前同样天数${hasRing('early') ? '，勤快戒 +' + S.run.billDue * 2 + '% 铲速' : ''}` : ''}</span></div>
+    <div class="sub src">${b.src}</div>
+    <button class="primary sm" id="btn-pay" ${canPay ? '' : 'disabled'}>${canPay ? `付清 ${fmt(b.amt)}` : `还差 ${fmt(b.amt - S.run.cash)}`}</button>
+    ${S.run.billDue <= 0 && !canPay ? `<button class="ghost danger" id="btn-bankrupt">付不出 → 破产（传承点 ${Math.floor(S.run.paidTotal * LP_PER_DOLLAR)}）</button>` : ''}</div>`;
+  // Perk 已持有
+  if (S.run.perks.length) html += `<div class="sub">持有 perk：${S.run.perks.map(id => PERKS.find(p => p.id === id).name).join(' · ')}</div>`;
+  // 技能树
+  html += `<h3>技能树 <span class="cans">${fmt(S.run.cash)}</span></h3><div id="tree" class="grid"></div>`;
+  // 铲子商店
+  html += `<h3>铲子商店</h3><div id="shop"></div>`;
+  $('de-summary').innerHTML = html;
+  $('de-cats').textContent = '';
+  const tree = $('tree');
+  for (const n of TREE) {
+    const l = lv(n.id), cost = treeCost(n), maxed = l >= n.max;
+    const el = document.createElement('div'); el.className = 'item' + (maxed ? ' max' : '');
+    el.innerHTML = `<div class="info"><div class="name">${n.name} <span class="sub">Lv.${l} · ${n.br}</span></div><div class="desc">${n.desc}</div></div>`;
+    const btn = document.createElement('button'); btn.textContent = maxed ? '满' : fmt(cost); btn.disabled = maxed || S.run.cash < cost;
+    btn.onclick = () => { S.run.cash -= cost; S.run.tree[n.id] = l + 1; SFX.ui(); save(); renderSettle(); hud(); };
+    el.appendChild(btn); tree.appendChild(el);
+  }
+  const shop = $('shop');
+  SHOVELS.forEach((sh, i) => {
+    const owned = i <= S.run.shovel;
+    const el = document.createElement('div'); el.className = 'item' + (i === S.run.shovel ? ' max' : '');
+    el.innerHTML = `<div class="ico">🥄</div><div class="info"><div class="name">${sh.name}</div><div class="desc">铲力 ${sh.dmg[0]}–${sh.dmg[1]} · 铲速 ${sh.spd[0]}–${sh.spd[1]}/s · 铲口 ${sh.r} · 暴击 ${sh.crit * 100}% <span class="src">${sh.src}</span></div></div>`;
+    const btn = document.createElement('button'); btn.textContent = i === S.run.shovel ? '在用' : owned ? '已有' : fmt(sh.price); btn.disabled = owned || S.run.cash < sh.price || i !== S.run.shovel + 1;
+    btn.onclick = () => { S.run.cash -= sh.price; S.run.shovel = i; SFX.ui(); save(); renderSettle(); hud(); };
+    el.appendChild(btn); shop.appendChild(el);
+  });
+  const flip = $('btn-flip'); if (flip) flip.onclick = () => {
+    const win = Math.random() < 0.5;
+    if (win) { S.run.cash += D.haul; if (hasPerk('house')) S.run.nextMult = 1.5; SFX.win(); }
+    else { S.run.cash -= D.haul; if (hasPerk('lucky')) S.run.nextLuck = 1; SFX.bad(); }
+    D.gambled = true; D.gambleMsg = win ? `🪙 正面！本局所得翻倍 → +${fmt(D.haul)}${hasPerk('house') ? ' · 手气顺：下局 ×1.5' : ''}` : `🪙 反面…本局所得归零 −${fmt(D.haul)}${hasPerk('lucky') ? ' · 否极泰来：下局 100% 幸运' : ''}`;
+    save(); renderSettle(); hud();
+  };
+  const pay = $('btn-pay'); if (pay) pay.onclick = payBill;
+  const bk = $('btn-bankrupt'); if (bk) bk.onclick = bankrupt;
+  $('btn-next').textContent = S.run.billDue <= 0 && !canPay ? '付不出账单，不能进入下一天' : '下一天';
+  $('btn-next').disabled = S.run.billDue <= 0 && !canPay;
+}
+function payBill() {
+  const b = curBill();
+  S.run.cash -= b.amt; S.run.paidTotal += b.amt; S.stats.paid += b.amt;
+  const early = Math.max(0, S.run.billDue); S.run.earlyDays += early;
+  S.run.billIdx++;
+  const nb = curBill(); S.run.billDue = Math.max(0, nb.due - early); // 提前付：下一张到期日提前同样天数（原作）
+  for (const [cat, idx] of Object.entries(UNLOCK_BY_BILL)) if (S.run.billIdx >= idx && !S.run.unlocked.includes(cat)) { S.run.unlocked.push(cat); $('de-cats').textContent = `解锁新猫：${CATS[cat].name} ${CATS[cat].emoji}（${CATS[cat].src}）`; }
+  SFX.win(); save();
+  // 三选一 perk
+  const pool = PERKS.filter(p => !S.run.perks.includes(p.id) || p.id === 'recover');
+  const offer = []; while (offer.length < 3 && pool.length) offer.push(pool.splice(Math.floor(Math.random() * pool.length), 1)[0]);
+  $('perk-list').innerHTML = '';
+  for (const p of offer) { const el = document.createElement('button'); el.className = 'perk'; el.innerHTML = `<div class="name">${p.name}</div><div class="desc">${p.desc}</div><div class="src">${p.src}</div>`; el.onclick = () => { S.run.perks.push(p.id); SFX.ui(); save(); $('perkpick').classList.add('hidden'); renderSettle(); hud(); }; $('perk-list').appendChild(el); }
+  $('perkpick').classList.remove('hidden');
+}
+function nextDay() {
+  S.run.day++;
+  if (S.run.billDue > 0) S.run.billDue--;
+  startRun();
+}
+function bankrupt() {
+  const lp = Math.floor(S.run.paidTotal * LP_PER_DOLLAR);
+  S.lp += lp; S.stats.bankrupt++;
+  SFX.bad(); save();
+  $('bk-title').textContent = `破产 · 第 ${S.cycle} 周目结束`;
+  $('bk-summary').innerHTML = `<div class="summary"><div>本周目付了 <b>${fmt(S.run.paidTotal)}</b> 账单</div><div>传承点 <b>+${lp}</b>（1 点 / $50）</div><div>共 <b>${S.run.day}</b> 天</div><div>现有传承点 <b>${S.lp}</b></div></div><div class="sub">保留：戒指 / 传承点。清零：现金、铲子、技能树、perk、猫解锁。（原作规则）</div>`;
+  renderRings();
+  $('dayend').classList.add('hidden'); $('bankrupt').classList.remove('hidden');
+}
+function renderRings() {
+  const el = $('rings'); el.innerHTML = '';
+  for (const r of RINGS) {
+    const owned = hasRing(r.id);
+    const row = document.createElement('div'); row.className = 'item' + (owned ? ' max' : '');
+    row.innerHTML = `<div class="ico">💍</div><div class="info"><div class="name">${r.name}</div><div class="desc">${r.desc} <span class="src">${r.src}</span></div></div>`;
+    const btn = document.createElement('button'); btn.textContent = owned ? '已戴' : `${r.cost} 点`; btn.disabled = owned || S.lp < r.cost;
+    btn.onclick = () => { S.lp -= r.cost; S.rings.push(r.id); SFX.ui(); save(); renderRings(); hud(); };
     row.appendChild(btn); el.appendChild(row);
   }
+  $('bk-lp').textContent = `💍 ${S.lp} 点`;
 }
+function newCycle() { S.cycle++; S.run = freshRun(); save(); $('bankrupt').classList.add('hidden'); startRun(); }
 
 // ---------- 输入 ----------
-function canvasPos(e) {
-  const r = cv.getBoundingClientRect();
-  // object-fit: contain → 计算实际绘制区域
-  const scale = Math.min(r.width / W, r.height / H);
-  const ox = (r.width - W * scale) / 2, oy = (r.height - H * scale) / 2;
-  return { x: (e.clientX - r.left - ox) / scale, y: (e.clientY - r.top - oy) / scale };
-}
-cv.addEventListener('pointerdown', e => {
-  e.preventDefault(); ac();
-  if (!running) return;
-  const p = canvasPos(e);
-  if (p.x < 0 || p.y < 0 || p.x > W || p.y > H) return;
-  scoopAt(p.x, p.y);
-});
-$('btn-endday').onclick = () => { if (running && D && !D.over) endDay(); };
-$('btn-next').onclick = () => { startDay(); };
-$('btn-start').onclick = () => { ac(); $('splash').classList.add('hidden'); startDay(); };
-$('btn-reset').onclick = () => { localStorage.removeItem(SAVE_KEY); S = defaultSave(); hud(); $('btn-reset').textContent = '已清空'; };
+function canvasPos(e) { const r = cv.getBoundingClientRect(); const sc = Math.min(r.width / W, r.height / H); const ox = (r.width - W * sc) / 2, oy = (r.height - H * sc) / 2; return { x: (e.clientX - r.left - ox) / sc, y: (e.clientY - r.top - oy) / sc }; }
+cv.addEventListener('pointermove', e => { const p = canvasPos(e); if (Math.abs(p.x - ptr.x) + Math.abs(p.y - ptr.y) > 0.5) ptr.moved = true; ptr.x = p.x; ptr.y = p.y; ptr.inside = p.x >= 0 && p.y >= 0 && p.x <= W && p.y <= H; });
+cv.addEventListener('pointerdown', e => { e.preventDefault(); ac(); const p = canvasPos(e); ptr.x = p.x; ptr.y = p.y; ptr.down = true; ptr.inside = true; });
+cv.addEventListener('pointerup', () => { ptr.down = false; });
+cv.addEventListener('pointerleave', () => { ptr.inside = false; ptr.down = false; });
+$('btn-endday').onclick = () => { if (running && D && !D.over) { D.endT = 0.01; } };
+$('btn-next').onclick = nextDay;
+$('btn-start').onclick = () => { ac(); $('splash').classList.add('hidden'); startRun(); };
+$('btn-reset').onclick = () => { localStorage.removeItem(SAVE_KEY); S = freshSave(); hud(); $('btn-reset').textContent = '已清空'; $('btn-start').textContent = '开始铲'; };
+$('btn-newcycle').onclick = newCycle;
 window.addEventListener('beforeunload', save);
-document.addEventListener('visibilitychange', () => { if (document.hidden) save(); });
+
+// ---------- 调试钩子 ----------
+window.PMS = { get S() { return S; }, get D() { return D; }, endRun, bankrupt, give(n) { S.run.cash += n; }, stam(n) { D.stamina = n; } };
 
 // ---------- 启动 ----------
-if (load()) { $('btn-start').textContent = `继续 · 第 ${S.day} 天`; }
-newDay(); D.over = true; // 未开始前先画一帧静态后院
-function frame(now) {
-  const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now;
-  if (D) { update(dt); draw(); hud(); }
-  requestAnimationFrame(frame);
-}
-lastT = performance.now();
-requestAnimationFrame(frame);
+if (load()) $('btn-start').textContent = `继续 · 第 ${S.cycle} 周目第 ${S.run.day} 天`;
+newRun(); D.over = true;
+function frame(now) { const dt = Math.min(0.05, (now - lastT) / 1000 || 0); lastT = now; if (D) { update(dt); draw(); hud(); } requestAnimationFrame(frame); }
+lastT = performance.now(); requestAnimationFrame(frame);
 })();

@@ -11,13 +11,13 @@
 <div id="app">
   <header id="hud">
     <div class="hud-row">
-      <span id="hud-day">第 1 天</span>
-      <span id="hud-cans">🥫 0</span>
-      <span id="hud-cats">🐈 1/5</span>
+      <span id="hud-day">第 1 周目 · 第 1 天</span>
+      <span id="hud-cans">$0</span>
+      <span id="hud-cats">💍 0 点</span>
     </div>
     <div class="hud-bars">
-      <div class="bar"><span class="bar-label">体力</span><div class="bar-track"><div id="bar-stamina" class="bar-fill stamina"></div></div><span id="txt-stamina" class="bar-val">15</span></div>
-      <div class="bar"><span class="bar-label">清洁</span><div class="bar-track"><div id="bar-clean" class="bar-fill clean"></div></div><span id="txt-clean" class="bar-val">100%</span></div>
+      <div class="bar"><span class="bar-label">体力</span><div class="bar-track"><div id="bar-stamina" class="bar-fill stamina"></div></div><span id="txt-stamina" class="bar-val">60</span></div>
+      <div class="bar"><span class="bar-label">账单</span><div class="bar-track"><div id="bar-clean" class="bar-fill clean"></div></div><span id="txt-clean" class="bar-val">0%</span></div>
     </div>
   </header>
   <div id="stage">
@@ -25,21 +25,35 @@
     <div id="splash" class="overlay">
       <div class="card">
         <h1>屎必须铲</h1>
-        <p class="sub">Poop Must Scoop · 可玩 demo v0.1</p>
-        <p>你是一所猫咪后院的铲屎官。<br>猫来了会拉，你铲。铲得干净猫就更多。</p>
-        <p class="tip">点哪里铲哪里 · 手酸了当天收工 · 屎放着不会消失，只会变形</p>
+        <p class="sub">Poop Must Scoop · 换皮 demo v0.2</p>
+        <p>你是穷铲屎官，接了富豪家猫咪后院的活。<br>猫什么都吞，屎里全是硬币。<br>账单一张接一张寄来。</p>
+        <p class="tip">铲子跟着鼠标走，停在屎上自动铲，不用点<br>体力见底当天收工 · 账单逾期就破产</p>
         <button id="btn-start" class="primary">开始铲</button>
         <button id="btn-reset" class="ghost">清空存档重开</button>
       </div>
     </div>
     <div id="dayend" class="overlay hidden">
       <div class="card wide">
-        <h2 id="de-title">第 1 天 · 收工</h2>
-        <div id="de-summary" class="summary"></div>
+        <h2 id="de-title">收工</h2>
+        <div id="de-summary"></div>
         <div id="de-cats" class="catmsg"></div>
-        <h3>商店 <span id="de-cans" class="cans">🥫 0</span></h3>
-        <div id="shop"></div>
         <button id="btn-next" class="primary">下一天</button>
+      </div>
+    </div>
+    <div id="perkpick" class="overlay hidden top">
+      <div class="card">
+        <h2>账单付清 · 三选一</h2>
+        <p class="sub">perk 在本周目内持续（原作规则）</p>
+        <div id="perk-list"></div>
+      </div>
+    </div>
+    <div id="bankrupt" class="overlay hidden top">
+      <div class="card wide">
+        <h2 id="bk-title">破产</h2>
+        <div id="bk-summary"></div>
+        <h3>戒指 <span id="bk-lp" class="cans">💍 0 点</span></h3>
+        <div id="rings"></div>
+        <button id="btn-newcycle" class="primary">开始新周目</button>
       </div>
     </div>
   </div>
