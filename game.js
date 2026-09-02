@@ -89,6 +89,8 @@ const LP_PER_DOLLAR = 1 / 50;
 // ---------- 体力 [待核] ----------
 const STAMINA_BASE = 60, STAMINA_PER_SWING = 1, MOVE_DRAIN = 0.5, TIME_DRAIN = 0.8; // TIME_DRAIN [待核]：腰力每秒自然流逝（原作「drains over time」，量未知）
 const SPAWN_BASE = 4.0, START_POOPS = 3; // [待核]
+// 埋屎 = 原作「猪会跑」的换皮：屎不长腿，但会被猫扒砂盖住。三个数都是 [待核]
+const BURY_TIME = 3.0, SAND_HP_RATIO = 0.5, BURIED_TIER_UP = 1;
 const TRAY = { x: 20, y: 70, w: 440, h: 400 };
 
 // ---------- 存档 ----------
@@ -148,21 +150,34 @@ function spawnPoop(type, instant) {
   const T = CATS[type];
   const x = rnd(TRAY.x + 40, TRAY.x + TRAY.w - 40), y = rnd(TRAY.y + 50, TRAY.y + TRAY.h - 40);
   if (instant) { D.poops.push(mkPoop(T, type, x, y)); return; }
-  // 猫走进来拉
-  const fromLeft = Math.random() < 0.5;
-  D.cats.push({ type, x: fromLeft ? -30 : W + 30, y, tx: x, ty: y, state: 'in', timer: 0, wob: 0 });
+  // 猫凭空出现（原作猪直接刷在桌上）
+  puff(x, y - 10, 10, '#ffffff');
+  D.cats.push({ id: uid++, type, x, y, state: 'squat', timer: 0.8, wob: 0, poop: null });
 }
-function mkPoop(T, type, x, y) { return { id: uid++, type, x, y, hp: T.hp, maxhp: T.hp, shape: T.shape, color: T.color, size: T.size, driftT: rnd(1, 3), squash: 0 }; }
+function mkPoop(T, type, x, y) { return { id: uid++, type, x, y, hp: T.hp, maxhp: T.hp, baseHp: T.hp, shape: T.shape, color: T.color, size: T.size, driftT: rnd(1, 3), squash: 0, bury: 0, buried: false, wasBuried: false }; }
 
 function updateCats(dt) {
   if (D.freezeT > 0) return;
   for (const c of D.cats) {
     c.wob += dt * 8;
-    if (c.state === 'in') { const d = dist(c.x, c.y, c.tx, c.ty); const st = Math.min(d, 140 * dt); if (d < 2) { c.state = 'squat'; c.timer = 0.8; } else { c.x += (c.tx - c.x) / d * st; c.y += (c.ty - c.y) / d * st; } }
-    else if (c.state === 'squat') { c.timer -= dt; if (c.timer <= 0) { D.poops.push(mkPoop(CATS[c.type], c.type, c.tx, c.ty)); c.state = 'out'; c.ox = c.x < W / 2 ? -40 : W + 40; } }
-    else if (c.state === 'out') { const d = Math.abs(c.ox - c.x); c.x += Math.sign(c.ox - c.x) * Math.min(d, 160 * dt); if (d < 2) c.dead = true; }
+    if (c.state === 'squat') {
+      c.timer -= dt;
+      if (c.timer <= 0) { const p = mkPoop(CATS[c.type], c.type, c.x, c.y); D.poops.push(p); c.poop = p; c.state = 'bury'; c.timer = BURY_TIME; }
+    } else if (c.state === 'bury') {
+      const p = c.poop;
+      if (!D.poops.includes(p)) { leave(c); continue; } // 被抢先铲走，猫悻悻消失
+      c.timer -= dt; p.bury = clamp(1 - c.timer / BURY_TIME, 0, 1);
+      if (Math.random() < dt * 6) puff(p.x + rnd(-14, 14), p.y + rnd(-6, 6), 2, '#e8d9b0');
+      if (c.timer <= 0) {
+        const sand = Math.round(p.baseHp * SAND_HP_RATIO);
+        p.buried = true; p.wasBuried = true; p.bury = 1; p.hp += sand; p.maxhp += sand; p.driftT = 1e9;
+        addFloat(p.x, p.y - 30, '埋起来了', '#c9b48a', 13);
+        leave(c);
+      }
+    }
   }
   D.cats = D.cats.filter(c => !c.dead);
+  function leave(c) { puff(c.x, c.y - 10, 8, '#ffffff'); c.dead = true; }
 }
 function updatePoops(dt) {
   if (D.freezeT > 0) D.freezeT -= dt;
@@ -209,21 +224,26 @@ function resolveSwing(x, y) {
   let dmg = dmgRoll(); if (isCrit) dmg = Math.round(dmg * critMult());
   const p = targets.sort((a, b) => dist(x, y, a.x, a.y) - dist(x, y, b.x, b.y))[0];
   p.hp -= dmg; p.squash = 1;
-  puff(p.x, p.y, 5, '#e8d9b0'); puff(p.x, p.y, 3, p.color);
-  addFloat(p.x + rnd(-10, 10), p.y - 24, `${isCrit ? '暴击 ' : ''}-${dmg}`, isCrit ? '#ffcc4d' : '#fff', isCrit ? 17 : 13);
+  puff(p.x, p.y, 5, '#e8d9b0'); puff(p.x, p.y, 3, p.buried ? '#e8d9b0' : p.color);
+  if (p.buried) {
+    addFloat(p.x + rnd(-10, 10), p.y - 24, `挖 -${dmg}`, '#f3ead6', 13);
+    if (p.hp <= p.baseHp) { p.buried = false; p.hp = Math.max(1, p.hp); addFloat(p.x, p.y - 40, '挖出来了！', '#ffcc4d', 16); puff(p.x, p.y, 14, '#e8d9b0'); SFX.crack(); }
+  } else addFloat(p.x + rnd(-10, 10), p.y - 24, `${isCrit ? '暴击 ' : ''}-${dmg}`, isCrit ? '#ffcc4d' : '#fff', isCrit ? 17 : 13);
   if (isCrit) { D.critCount++; SFX.crit(); coins(p.x, p.y, hasPerk('critgold') ? 6 : 3); D.shake = 4; if (hasPerk('critgold')) { D.haul += 1; addFloat(p.x + 16, p.y - 40, '+$1', '#ffcc4d', 12); } }
   if (p.hp <= 0) destroyPoop(p); else if (!isCrit) SFX.hit();
 }
-function rollLoot(T) {
+function rollLoot(T, tierBonus = 0) {
   let tier = 0; const r = Math.random(); let acc = 0;
   for (let i = 0; i < T.loot.length; i++) { acc += T.loot[i][0]; if (r < acc) { tier = i; break; } }
-  if (Math.random() < luck()) tier = Math.min(T.loot.length - 1, tier + 1);
+  tier += tierBonus; // 埋过的结块更大：升一档 [待核]
+  if (Math.random() < luck()) tier += 1;
+  tier = Math.min(T.loot.length - 1, tier);
   const t = T.loot[tier];
   return { v: rint(t[1], t[2]), tier };
 }
 function destroyPoop(p) {
   const T = CATS[p.type];
-  const { v, tier } = rollLoot(T);
+  const { v, tier } = rollLoot(T, p.wasBuried ? BURIED_TIER_UP : 0);
   const gain = Math.round(v * lootMult());
   D.haul += gain; D.destroyed++;
   D.poops = D.poops.filter(x => x.id !== p.id);
@@ -231,6 +251,7 @@ function destroyPoop(p) {
   coins(p.x, p.y, Math.min(24, 3 + Math.floor(gain / 2)));
   addFloat(p.x, p.y - 34, `+${fmt(gain)}`, tier === 2 ? '#ff9de2' : tier === 1 ? '#ffcc4d' : '#fff3b0', 15 + tier * 4);
   if (tier === 2) { addFloat(p.x, p.y - 56, '大奖！', '#ff9de2', 20); D.shake = 8; SFX.win(); } else SFX.crack();
+  if (p.wasBuried) addFloat(p.x + 24, p.y - 20, '埋过·结块更大', '#c9b48a', 11);
   if (T.restore) { D.stamina = Math.min(maxStamina(), D.stamina + T.restore); addFloat(p.x, p.y - 12, `腰力 +${T.restore}`, '#7ee081', 13); }
 }
 
@@ -282,7 +303,7 @@ function draw() {
   ctx.fillText(`${sh.name} · 臂力 ${sh.dmg[0] + lv('dmg')}–${sh.dmg[1] + lv('dmg')} · 手速 ${speed().toFixed(2)}/s · 铲面 ${(radiusPx() / PX_PER_UNIT).toFixed(1)} · 一铲到底 ${Math.round(critChance() * 100)}%`, 36, 556);
   ctx.fillText(`本局所得 ${fmt(D.haul)} · 铲了 ${D.hits} 下 · 连击 ${D.combo}${D.freezeT > 0 ? ' · ❄ 猫都睡了' : ''}`, 36, 578);
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '12px -apple-system,"PingFang SC",sans-serif';
-  ctx.fillText((ptr.type === 'touch' ? '手指按住拖到屎上，自动铲' : '鼠标移到屎上，自动铲 · 不用点') + ' · 腰力一直在掉，直不起腰就收工', 36, 604);
+  ctx.fillText((ptr.type === 'touch' ? '手指按住拖到屎上，自动铲' : '鼠标移到屎上，自动铲 · 不用点') + ' · 猫埋住的屎要挖，但结块更大', 36, 604);
   if (D.over) { ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(0, 0, W, H); }
   ctx.restore();
 }
@@ -298,6 +319,17 @@ function drawShovel() {
 }
 function drawPoop(p) {
   const s = 10 * p.size, sq = 1 - p.squash * 0.18;
+  if (p.buried) { // 鼓包 + 破绽（苍蝇）
+    ctx.save(); ctx.translate(p.x, p.y);
+    const k = 1 - (p.hp - p.baseHp) / Math.max(1, p.maxhp - p.baseHp); // 挖开进度
+    ctx.fillStyle = 'rgba(0,0,0,.10)'; ctx.beginPath(); ctx.ellipse(0, s * 0.6, s * 1.7, s * 0.5, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#e4d5ae'; ctx.strokeStyle = '#c9b48a'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.ellipse(0, s * 0.2, s * 1.6, s * (0.9 - k * 0.4), 0, Math.PI, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+    if (k > 0.3) { ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(0, s * 0.1, s * 0.35 * k, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = '#111';
+    for (let i = 0; i < 2; i++) { const a = D.t * 5 + i * Math.PI + p.id; const fx = Math.cos(a) * s * 1.3, fy = -s * 1.1 + Math.sin(a * 1.7) * s * 0.4; ctx.beginPath(); ctx.arc(fx, fy, 2, 0, Math.PI * 2); ctx.fill(); ctx.fillRect(fx - 3, fy - 2, 6, 1); }
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; roundRect(-s * 1.2, -s * 1.9, s * 2.4, 5, 2); ctx.fill(); ctx.fillStyle = '#e4d5ae'; roundRect(-s * 1.2, -s * 1.9, s * 2.4 * (1 - k), 5, 2); ctx.fill();
+    ctx.restore(); return;
+  }
   ctx.save(); ctx.translate(p.x, p.y); ctx.scale(1 + p.squash * 0.12, sq);
   ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(0, s * 0.9, s * 1.2, s * 0.35, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = p.color; ctx.strokeStyle = shade(p.color, -25); ctx.lineWidth = 1.5;
@@ -313,6 +345,7 @@ function drawPoop(p) {
   ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(-ex, fy, s * 0.2, 0, Math.PI * 2); ctx.arc(ex, fy, s * 0.2, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(-ex + 1, fy, s * 0.1, 0, Math.PI * 2); ctx.arc(ex + 1, fy, s * 0.1, 0, Math.PI * 2); ctx.fill();
   ctx.strokeStyle = '#222'; ctx.lineWidth = 1.2; ctx.beginPath(); if (p.squash > 0.3) { ctx.arc(0, fy + s * 0.3, s * 0.22, Math.PI + 0.3, -0.3); } else ctx.arc(0, fy + s * 0.15, s * 0.28, 0.2, Math.PI - 0.2); ctx.stroke();
+  if (p.bury > 0 && !p.buried) { ctx.fillStyle = '#e4d5ae'; ctx.beginPath(); ctx.ellipse(0, s * 0.9 - p.bury * s * 1.2, s * 1.5, s * 1.4 * p.bury, 0, 0, Math.PI * 2); ctx.fill(); }
   if (D.freezeT > 0) { ctx.font = '12px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('💤', s * 0.9, -s * 0.9); }
   // 血条
   if (p.hp < p.maxhp) { ctx.fillStyle = 'rgba(0,0,0,.45)'; roundRect(-s * 1.2, -s * 1.9, s * 2.4, 5, 2); ctx.fill(); ctx.fillStyle = '#ff6b5a'; roundRect(-s * 1.2, -s * 1.9, s * 2.4 * (p.hp / p.maxhp), 5, 2); ctx.fill(); }
@@ -325,8 +358,10 @@ function drawCat(c) {
   ctx.save(); ctx.translate(c.x, c.y);
   ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.beginPath(); ctx.ellipse(0, 14, 16, 5, 0, 0, Math.PI * 2); ctx.fill();
   ctx.font = '30px sans-serif'; ctx.textAlign = 'center';
-  if (c.state === 'squat') ctx.translate(Math.sin(D.t * 30) * 1.5, 4);
-  ctx.fillText(T.emoji, 0, 10 + (c.state === 'squat' ? 0 : Math.sin(c.wob) * 2));
+  if (c.state === 'squat') ctx.translate(Math.sin(D.t * 30) * 1.5, -14);
+  else ctx.translate(Math.sin(D.t * 18) * 4, -20); // 扒砂
+  ctx.fillText(T.emoji, 0, 10);
+  if (c.state === 'bury') { ctx.font = '11px -apple-system,"PingFang SC",sans-serif'; ctx.fillStyle = '#fff'; ctx.fillText(`埋… ${Math.ceil(c.timer)}`, 0, -22); }
   ctx.font = '10px -apple-system,"PingFang SC",sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.8)'; ctx.fillText(T.name, 0, 26);
   ctx.restore();
 }
