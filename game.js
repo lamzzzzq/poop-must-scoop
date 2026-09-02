@@ -48,15 +48,15 @@ const CRIT_MULT = 2.0; // [待核]
 // ---------- 技能树：网状发散（原作：从根节点长出，节点随账单进度出现）价格 [待核] ----------
 // req = 前置节点(买到 Lv.1 才长出来)；minBill = 至少付清几张账单才解锁；x,y = 图上坐标
 const TREE = [
-  { id: 'dmg',     br: '握力',   name: '铲力',       desc: '+1 铲力',              base: 60,  max: 20, x: 200, y: 160, req: [] },
+  { id: 'dmg',     br: '握力',   name: '臂力',       desc: '+1 臂力',              base: 60,  max: 20, x: 200, y: 160, req: [] },
   { id: 'crit',    br: '握力',   name: '一铲到底',   desc: '+2% 暴击',             base: 120, max: 10, x: 110, y: 100, req: ['dmg'] },
-  { id: 'critdmg', br: '握力',   name: '暴击铲力',   desc: '+10% 暴击倍率',        base: 200, max: 10, x: 40,  y: 60,  req: ['crit'], minBill: 1 },
-  { id: 'rad',     br: '握力',   name: '铲口',       desc: '+0.2 铲口',            base: 150, max: 8,  x: 290, y: 100, req: ['dmg'] },
+  { id: 'critdmg', br: '握力',   name: '暴击臂力',   desc: '+10% 暴击倍率',        base: 200, max: 10, x: 40,  y: 60,  req: ['crit'], minBill: 1 },
+  { id: 'rad',     br: '握力',   name: '铲面',       desc: '+0.2 铲面',            base: 150, max: 8,  x: 290, y: 100, req: ['dmg'] },
   { id: 'luck',    br: '幸运',   name: '幸运',       desc: '+3% 掉落升档几率',     base: 110, max: 10, x: 200, y: 80,  req: ['dmg'], minBill: 1 },
   { id: 'loot',    br: '幸运',   name: '掉落',       desc: '+5% 掉落金额',         base: 100, max: 10, x: 200, y: 20,  req: ['luck'], minBill: 2 },
-  { id: 'stam',    br: '咖啡',   name: '体力上限',   desc: '+10 体力',             base: 80,  max: 20, x: 110, y: 220, req: ['dmg'] },
-  { id: 'drain',   br: '咖啡',   name: '省力',       desc: '移动耗体 −10%',        base: 100, max: 5,  x: 40,  y: 260, req: ['stam'], minBill: 1 },
-  { id: 'spd',     br: '健身房', name: '铲速',       desc: '+5% 铲速',             base: 90,  max: 10, x: 290, y: 220, req: ['stam'] },
+  { id: 'stam',    br: '咖啡',   name: '腰力上限',   desc: '+10 腰力',             base: 80,  max: 20, x: 110, y: 220, req: ['dmg'] },
+  { id: 'drain',   br: '咖啡',   name: '护腰',       desc: '耗腰 −10%',        base: 100, max: 5,  x: 40,  y: 260, req: ['stam'], minBill: 1 },
+  { id: 'spd',     br: '健身房', name: '手速',       desc: '+5% 手速',             base: 90,  max: 10, x: 290, y: 220, req: ['stam'] },
   { id: 'start',   br: '猫',     name: '开局屎数',   desc: '+1 开局屎',            base: 130, max: 6,  x: 360, y: 260, req: ['spd'], minBill: 2 },
   { id: 'spawn',   br: '猫',     name: '猫拉屎频率', desc: '拉屎间隔 −10%',        base: 130, max: 6,  x: 370, y: 180, req: ['rad', 'start'], minBill: 3 },
 ];
@@ -69,7 +69,7 @@ const treeCost = n => Math.round(n.base * Math.pow(1.6, S.run.tree[n.id] || 0));
 // ---------- Perk 三选一（原作效果，原数值） ----------
 const PERKS = [
   { id: 'freeze',   name: '猫都睡了',     src: 'Deep Freeze',      desc: '命中有几率冻住全场 2.5s（几率随每铲累积）' },
-  { id: 'recover',  name: '越铲越精神',   src: 'Recovery Smash',   desc: '每铲一下 +1 体力' },
+  { id: 'recover',  name: '越铲越精神',   src: 'Recovery Smash',   desc: '每铲一下 +1 腰力' },
   { id: 'interest', name: '罐头基金复利', src: 'Interest Rate',    desc: '每局开始按存款 5% 发利息' },
   { id: 'house',    name: '手气顺',       src: 'House Never Wins', desc: '赌赢后，下一局收益 ×1.5' },
   { id: 'lucky',    name: '否极泰来',     src: 'Lucky Loss',       desc: '赌输后，下一局掉落 100% 幸运' },
@@ -79,15 +79,15 @@ const PERKS = [
 // ---------- 戒指（破产后用传承点购买，永久；原作 1 点/$50） ----------
 const RINGS = [
   { id: 'crit',  name: '一铲到底戒', cost: 50,   src: 'Crit Ring 50 LP',        desc: '+10% 暴击，+50% 暴伤' },
-  { id: 'early', name: '勤快戒',     cost: 75,   src: 'Early Speed Ring 75 LP', desc: '每提前 1 天付账 +2% 铲速（上限 25%），持续本周目' },
-  { id: 'drain', name: '省力戒',     cost: 100,  src: '−10% 体力消耗戒（价格 [待核]）', desc: '体力消耗 −10%' },
+  { id: 'early', name: '勤快戒',     cost: 75,   src: 'Early Speed Ring 75 LP', desc: '每提前 1 天付账 +2% 手速（上限 25%），持续本周目' },
+  { id: 'drain', name: '护腰戒',     cost: 100,  src: '−10% 体力消耗戒（价格 [待核]）', desc: '腰力消耗 −10%' },
   { id: 'loot',  name: '掉落戒',     cost: 100,  src: '+10% 掉落戒（价格 [待核]）',   desc: '掉落 +10%' },
-  { id: 'dmg3',  name: '铲力戒 III', cost: 1000, src: 'Damage Ring III 1,000 LP', desc: '+20% 铲力' },
+  { id: 'dmg3',  name: '臂力戒 III', cost: 1000, src: 'Damage Ring III 1,000 LP', desc: '+20% 臂力' },
 ];
 const LP_PER_DOLLAR = 1 / 50;
 
 // ---------- 体力 [待核] ----------
-const STAMINA_BASE = 60, STAMINA_PER_SWING = 1, MOVE_DRAIN = 0.5;
+const STAMINA_BASE = 60, STAMINA_PER_SWING = 1, MOVE_DRAIN = 0.5, TIME_DRAIN = 0.8; // TIME_DRAIN [待核]：腰力每秒自然流逝（原作「drains over time」，量未知）
 const SPAWN_BASE = 4.0, START_POOPS = 3; // [待核]
 const TRAY = { x: 20, y: 70, w: 440, h: 400 };
 
@@ -231,7 +231,7 @@ function destroyPoop(p) {
   coins(p.x, p.y, Math.min(24, 3 + Math.floor(gain / 2)));
   addFloat(p.x, p.y - 34, `+${fmt(gain)}`, tier === 2 ? '#ff9de2' : tier === 1 ? '#ffcc4d' : '#fff3b0', 15 + tier * 4);
   if (tier === 2) { addFloat(p.x, p.y - 56, '大奖！', '#ff9de2', 20); D.shake = 8; SFX.win(); } else SFX.crack();
-  if (T.restore) { D.stamina = Math.min(maxStamina(), D.stamina + T.restore); addFloat(p.x, p.y - 12, `体力 +${T.restore}`, '#7ee081', 13); }
+  if (T.restore) { D.stamina = Math.min(maxStamina(), D.stamina + T.restore); addFloat(p.x, p.y - 12, `腰力 +${T.restore}`, '#7ee081', 13); }
 }
 
 // ---------- 粒子 ----------
@@ -243,6 +243,7 @@ function addFloat(x, y, txt, color, size) { D.floats.push({ x, y, txt, color, si
 function update(dt) {
   D.t += dt;
   if (!D.over) {
+    D.stamina -= TIME_DRAIN * drainMult() * dt; // 时间一直在走，腰越弯越酸
     updateCats(dt); updatePoops(dt); updateSwing(dt);
     D.spawnT -= dt; if (D.spawnT <= 0) { D.spawnT = spawnInterval(); if (D.poops.length + D.cats.length < 12) spawnPoop(pick(S.run.unlocked), false); }
     if (D.stamina <= 0 && !D.pending && D.endT <= 0) { D.stamina = 0; D.endT = 0.8; }
@@ -278,10 +279,10 @@ function draw() {
   ctx.fillText(S.run.billDue <= 0 ? '今天收工就要付，付不出就破产' : `${S.run.billDue} 天后到期`, 36, 532);
   ctx.fillStyle = 'rgba(255,255,255,.85)';
   const sh = shovel();
-  ctx.fillText(`${sh.name} · 铲力 ${sh.dmg[0] + lv('dmg')}–${sh.dmg[1] + lv('dmg')} · 铲速 ${speed().toFixed(2)}/s · 铲口 ${(radiusPx() / PX_PER_UNIT).toFixed(1)} · 暴击 ${Math.round(critChance() * 100)}%`, 36, 556);
+  ctx.fillText(`${sh.name} · 臂力 ${sh.dmg[0] + lv('dmg')}–${sh.dmg[1] + lv('dmg')} · 手速 ${speed().toFixed(2)}/s · 铲面 ${(radiusPx() / PX_PER_UNIT).toFixed(1)} · 一铲到底 ${Math.round(critChance() * 100)}%`, 36, 556);
   ctx.fillText(`本局所得 ${fmt(D.haul)} · 铲了 ${D.hits} 下 · 连击 ${D.combo}${D.freezeT > 0 ? ' · ❄ 猫都睡了' : ''}`, 36, 578);
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '12px -apple-system,"PingFang SC",sans-serif';
-  ctx.fillText(ptr.type === 'touch' ? '手指按住拖到屎上，自动铲' : '鼠标移到屎上，自动铲 · 不用点', 36, 604);
+  ctx.fillText((ptr.type === 'touch' ? '手指按住拖到屎上，自动铲' : '鼠标移到屎上，自动铲 · 不用点') + ' · 腰力一直在掉，直不起腰就收工', 36, 604);
   if (D.over) { ctx.fillStyle = 'rgba(0,0,0,.3)'; ctx.fillRect(0, 0, W, H); }
   ctx.restore();
 }
@@ -347,6 +348,7 @@ function hud() {
   $('hud-cats').textContent = `💍 ${S.lp} 点`;
   const st = D ? Math.max(0, D.stamina) : maxStamina();
   $('bar-stamina').style.width = `${(st / maxStamina()) * 100}%`; $('txt-stamina').textContent = `${Math.ceil(st)}`;
+  $('bar-stamina').classList.toggle('low', !!(D && !D.over && st / maxStamina() < 0.25));
   const b = curBill(); const pct = clamp((S.run.cash + (D && !D.over ? D.haul : 0)) / b.amt, 0, 1);
   $('bar-clean').style.width = `${pct * 100}%`; $('txt-clean').textContent = `${Math.round(pct * 100)}%`;
   $('combo-hint').textContent = D && !D.over ? `盘里 ${D.poops.length} 坨` : '';
@@ -374,7 +376,7 @@ function renderSettle() {
   if (D.unlockMsg) html += `<div class="sect"><div class="sect-t">🐾 ${D.unlockMsg}</div></div>`;
   // 账单
   if (done) html += `<div class="sect bill"><div class="sect-t">🎉 全部账单付清 · 自由！</div><div class="sub">原作此处进入 King Piggy Boss → 税 → 结局，demo v0.5 再做。可以继续铲着玩。</div></div>`;
-  else html += `<div class="sect bill ${S.run.billDue <= 0 && !canPay ? 'danger' : ''}"><div class="sect-t">🧾 账单 ${S.run.billIdx + 1}：${b.name} <b>${fmt(b.amt)}</b> <span class="sub">${S.run.billDue <= 0 ? '今天到期' : `${S.run.billDue} 天后到期`}${S.run.billDue > 0 ? ` · 现在付=提前 ${S.run.billDue} 天，下一张到期日提前同样天数${hasRing('early') ? '，勤快戒 +' + S.run.billDue * 2 + '% 铲速' : ''}` : ''}</span></div>
+  else html += `<div class="sect bill ${S.run.billDue <= 0 && !canPay ? 'danger' : ''}"><div class="sect-t">🧾 账单 ${S.run.billIdx + 1}：${b.name} <b>${fmt(b.amt)}</b> <span class="sub">${S.run.billDue <= 0 ? '今天到期' : `${S.run.billDue} 天后到期`}${S.run.billDue > 0 ? ` · 现在付=提前 ${S.run.billDue} 天，下一张到期日提前同样天数${hasRing('early') ? '，勤快戒 +' + S.run.billDue * 2 + '% 手速' : ''}` : ''}</span></div>
     <div class="sub src">${b.src}</div>
     <button class="primary sm" id="btn-pay" ${canPay ? '' : 'disabled'}>${canPay ? `付清 ${fmt(b.amt)}` : `还差 ${fmt(b.amt - S.run.cash)}`}</button>
     ${S.run.billDue <= 0 && !canPay ? `<button class="ghost danger" id="btn-bankrupt">付不出 → 破产（传承点 ${Math.floor(S.run.paidTotal * LP_PER_DOLLAR)}）</button>` : ''}</div>`;
@@ -382,7 +384,7 @@ function renderSettle() {
   // Perk 已持有
   if (S.run.perks.length) html += `<div class="sub">持有 perk：${S.run.perks.map(id => PERKS.find(p => p.id === id).name).join(' · ')}</div>`;
   // 技能树
-  html += `<h3>技能树 <span class="cans">${fmt(S.run.cash)}</span></h3><div class="sub" style="margin-top:0">从「铲力」往外长，买到 Lv.1 才长出下一环；虚线节点要付清更多账单才解锁</div><div id="tree"></div><div id="tree-detail" class="sect"></div>`;
+  html += `<h3>技能树 <span class="cans">${fmt(S.run.cash)}</span></h3><div class="sub" style="margin-top:0">从「臂力」往外长，买到 Lv.1 才长出下一环；虚线节点要付清更多账单才解锁</div><div id="tree"></div><div id="tree-detail" class="sect"></div>`;
   // 铲子商店
   html += `<h3>铲子商店</h3><div id="shop"></div>`;
   $('de-summary').innerHTML = html;
@@ -391,7 +393,7 @@ function renderSettle() {
   SHOVELS.forEach((sh, i) => {
     const owned = i <= S.run.shovel;
     const el = document.createElement('div'); el.className = 'item' + (i === S.run.shovel ? ' max' : '');
-    el.innerHTML = `<div class="ico">🥄</div><div class="info"><div class="name">${sh.name}</div><div class="desc">铲力 ${sh.dmg[0]}–${sh.dmg[1]} · 铲速 ${sh.spd[0]}–${sh.spd[1]}/s · 铲口 ${sh.r} · 暴击 ${sh.crit * 100}% <span class="src">${sh.src}</span></div></div>`;
+    el.innerHTML = `<div class="ico">🥄</div><div class="info"><div class="name">${sh.name}</div><div class="desc">臂力 ${sh.dmg[0]}–${sh.dmg[1]} · 手速 ${sh.spd[0]}–${sh.spd[1]}/s · 铲面 ${sh.r} · 一铲到底 ${sh.crit * 100}% <span class="src">${sh.src}</span></div></div>`;
     const btn = document.createElement('button'); btn.textContent = i === S.run.shovel ? '在用' : owned ? '已有' : fmt(sh.price); btn.disabled = owned || S.run.cash < sh.price || i !== S.run.shovel + 1;
     btn.onclick = () => { S.run.cash -= sh.price; S.run.shovel = i; D.spent = true; SFX.ui(); save(); renderSettle(); hud(); };
     el.appendChild(btn); shop.appendChild(el);
