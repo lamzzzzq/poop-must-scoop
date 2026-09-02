@@ -45,19 +45,25 @@ const SHOVELS = [
 ];
 const CRIT_MULT = 2.0; // [待核]
 
-// ---------- 技能树（局内现金，破产清零）价格 [待核] ----------
+// ---------- 技能树：网状发散（原作：从根节点长出，节点随账单进度出现）价格 [待核] ----------
+// req = 前置节点(买到 Lv.1 才长出来)；minBill = 至少付清几张账单才解锁；x,y = 图上坐标
 const TREE = [
-  { id: 'dmg',   br: '握力',   name: '铲力',       desc: '+1 铲力',            base: 60,  max: 20 },
-  { id: 'crit',  br: '握力',   name: '一铲到底',   desc: '+2% 暴击',           base: 120, max: 10 },
-  { id: 'rad',   br: '握力',   name: '铲口',       desc: '+0.2 铲口',          base: 150, max: 8 },
-  { id: 'stam',  br: '咖啡',   name: '体力上限',   desc: '+10 体力',           base: 80,  max: 20 },
-  { id: 'drain', br: '咖啡',   name: '省力',       desc: '移动耗体 −10%',      base: 100, max: 5 },
-  { id: 'spd',   br: '健身房', name: '铲速',       desc: '+5% 铲速',           base: 90,  max: 10 },
-  { id: 'luck',  br: '幸运',   name: '幸运',       desc: '+3% 掉落升档几率',   base: 110, max: 10 },
-  { id: 'loot',  br: '幸运',   name: '掉落',       desc: '+5% 掉落金额',       base: 100, max: 10 },
-  { id: 'start', br: '猫',     name: '开局屎数',   desc: '+1 开局屎',          base: 130, max: 6 },
-  { id: 'spawn', br: '猫',     name: '猫拉屎频率', desc: '拉屎间隔 −10%',      base: 130, max: 6 },
+  { id: 'dmg',     br: '握力',   name: '铲力',       desc: '+1 铲力',              base: 60,  max: 20, x: 200, y: 160, req: [] },
+  { id: 'crit',    br: '握力',   name: '一铲到底',   desc: '+2% 暴击',             base: 120, max: 10, x: 110, y: 100, req: ['dmg'] },
+  { id: 'critdmg', br: '握力',   name: '暴击铲力',   desc: '+10% 暴击倍率',        base: 200, max: 10, x: 40,  y: 60,  req: ['crit'], minBill: 1 },
+  { id: 'rad',     br: '握力',   name: '铲口',       desc: '+0.2 铲口',            base: 150, max: 8,  x: 290, y: 100, req: ['dmg'] },
+  { id: 'luck',    br: '幸运',   name: '幸运',       desc: '+3% 掉落升档几率',     base: 110, max: 10, x: 200, y: 80,  req: ['dmg'], minBill: 1 },
+  { id: 'loot',    br: '幸运',   name: '掉落',       desc: '+5% 掉落金额',         base: 100, max: 10, x: 200, y: 20,  req: ['luck'], minBill: 2 },
+  { id: 'stam',    br: '咖啡',   name: '体力上限',   desc: '+10 体力',             base: 80,  max: 20, x: 110, y: 220, req: ['dmg'] },
+  { id: 'drain',   br: '咖啡',   name: '省力',       desc: '移动耗体 −10%',        base: 100, max: 5,  x: 40,  y: 260, req: ['stam'], minBill: 1 },
+  { id: 'spd',     br: '健身房', name: '铲速',       desc: '+5% 铲速',             base: 90,  max: 10, x: 290, y: 220, req: ['stam'] },
+  { id: 'start',   br: '猫',     name: '开局屎数',   desc: '+1 开局屎',            base: 130, max: 6,  x: 360, y: 260, req: ['spd'], minBill: 2 },
+  { id: 'spawn',   br: '猫',     name: '猫拉屎频率', desc: '拉屎间隔 −10%',        base: 130, max: 6,  x: 370, y: 180, req: ['rad', 'start'], minBill: 3 },
 ];
+const treeNode = id => TREE.find(n => n.id === id);
+// 可见：前置全部 ≥Lv.1（根节点恒可见）；可买：可见且账单进度够
+const treeVisible = n => n.req.every(r => lv(r) >= 1);
+const treeUnlocked = n => treeVisible(n) && S.run.billIdx >= (n.minBill || 0);
 const treeCost = n => Math.round(n.base * Math.pow(1.6, S.run.tree[n.id] || 0)); // 1.6 [待核]
 
 // ---------- Perk 三选一（原作效果，原数值） ----------
@@ -98,7 +104,7 @@ const lv = id => S.run.tree[id] || 0;
 const shovel = () => SHOVELS[S.run.shovel];
 const maxStamina = () => STAMINA_BASE + lv('stam') * 10;
 const critChance = () => shovel().crit + lv('crit') * 0.02 + (hasRing('crit') ? 0.10 : 0);
-const critMult = () => CRIT_MULT + (hasRing('crit') ? 0.5 : 0);
+const critMult = () => CRIT_MULT * (1 + lv('critdmg') * 0.1) + (hasRing('crit') ? 0.5 : 0);
 const radiusPx = () => (shovel().r + lv('rad') * 0.2) * PX_PER_UNIT;
 const speed = () => { const s = shovel().spd; const base = (s[0] + s[1]) / 2 * (1 + lv('spd') * 0.05); const early = hasRing('early') ? Math.min(0.25, S.run.earlyDays * 0.02) : 0; return base * (1 + early); };
 const dmgRoll = () => { const d = shovel().dmg; let v = rint(d[0], d[1]) + lv('dmg'); if (hasRing('dmg3')) v *= 1.2; return v; };
@@ -376,19 +382,11 @@ function renderSettle() {
   // Perk 已持有
   if (S.run.perks.length) html += `<div class="sub">持有 perk：${S.run.perks.map(id => PERKS.find(p => p.id === id).name).join(' · ')}</div>`;
   // 技能树
-  html += `<h3>技能树 <span class="cans">${fmt(S.run.cash)}</span></h3><div id="tree" class="grid"></div>`;
+  html += `<h3>技能树 <span class="cans">${fmt(S.run.cash)}</span></h3><div class="sub" style="margin-top:0">从「铲力」往外长，买到 Lv.1 才长出下一环；虚线节点要付清更多账单才解锁</div><div id="tree"></div><div id="tree-detail" class="sect"></div>`;
   // 铲子商店
   html += `<h3>铲子商店</h3><div id="shop"></div>`;
   $('de-summary').innerHTML = html;
-  const tree = $('tree');
-  for (const n of TREE) {
-    const l = lv(n.id), cost = treeCost(n), maxed = l >= n.max;
-    const el = document.createElement('div'); el.className = 'item' + (maxed ? ' max' : '');
-    el.innerHTML = `<div class="info"><div class="name">${n.name} <span class="sub">Lv.${l} · ${n.br}</span></div><div class="desc">${n.desc}</div></div>`;
-    const btn = document.createElement('button'); btn.textContent = maxed ? '满' : fmt(cost); btn.disabled = maxed || S.run.cash < cost;
-    btn.onclick = () => { S.run.cash -= cost; S.run.tree[n.id] = l + 1; D.spent = true; SFX.ui(); save(); renderSettle(); hud(); };
-    el.appendChild(btn); tree.appendChild(el);
-  }
+  renderTree();
   const shop = $('shop');
   SHOVELS.forEach((sh, i) => {
     const owned = i <= S.run.shovel;
@@ -409,6 +407,25 @@ function renderSettle() {
   const bk = $('btn-bankrupt'); if (bk) bk.onclick = bankrupt;
   $('btn-next').textContent = mustPay ? (canPay ? '账单今天到期，先付清' : '付不出账单，不能进入下一天') : '下一天';
   $('btn-next').disabled = mustPay;
+}
+let treeSel = 'dmg';
+function renderTree() {
+  const vis = TREE.filter(treeVisible);
+  let svg = `<svg viewBox="0 0 400 300" class="tree-svg">`;
+  for (const n of vis) for (const r of n.req) { const p = treeNode(r); svg += `<line x1="${p.x}" y1="${p.y}" x2="${n.x}" y2="${n.y}" class="edge ${lv(n.id) ? 'on' : ''}"/>`; }
+  for (const n of vis) {
+    const l = lv(n.id), un = treeUnlocked(n), maxed = l >= n.max, cost = treeCost(n);
+    const cls = ['node', l ? 'bought' : '', un ? '' : 'locked', maxed ? 'maxed' : '', treeSel === n.id ? 'sel' : '', (un && !maxed && S.run.cash >= cost) ? 'afford' : ''].join(' ');
+    svg += `<g class="${cls}" data-id="${n.id}"><circle cx="${n.x}" cy="${n.y}" r="${n.id === 'dmg' ? 26 : 22}"/><text x="${n.x}" y="${n.y - 2}" class="nm">${n.name}</text><text x="${n.x}" y="${n.y + 11}" class="lv">${un ? (maxed ? '满' : `Lv.${l}`) : '🔒'}</text></g>`;
+  }
+  svg += '</svg>';
+  $('tree').innerHTML = svg;
+  $('tree').querySelectorAll('g.node').forEach(g => g.onclick = () => { treeSel = g.dataset.id; renderTree(); });
+  const n = treeNode(treeSel); if (!n || !treeVisible(n)) { treeSel = 'dmg'; return renderTree(); }
+  const l = lv(n.id), un = treeUnlocked(n), maxed = l >= n.max, cost = treeCost(n);
+  const kids = TREE.filter(k => k.req.includes(n.id)).map(k => k.name);
+  $('tree-detail').innerHTML = `<div class="sect-t">${n.name} <span class="sub">Lv.${l}/${n.max} · ${n.br}</span></div><div>${n.desc}</div>${kids.length ? `<div class="sub">买到 Lv.1 长出：${kids.join('、')}</div>` : ''}${un ? '' : `<div class="sub" style="color:#b8760f">🔒 付清第 ${n.minBill} 张账单后解锁</div>`}<button class="primary sm" id="btn-tree-buy" ${(!un || maxed || S.run.cash < cost) ? 'disabled' : ''}>${maxed ? '已满级' : !un ? '未解锁' : `升级 ${fmt(cost)}`}</button>`;
+  $('btn-tree-buy').onclick = () => { if (!un || maxed || S.run.cash < cost) return; S.run.cash -= cost; S.run.tree[n.id] = l + 1; D.spent = true; SFX.ui(); save(); renderSettle(); hud(); };
 }
 function payBill() {
   const b = curBill();

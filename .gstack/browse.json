@@ -1,8 +1,8 @@
 {
-  "pid": 17662,
-  "port": 39100,
-  "token": "ec03beb7-7815-4c26-a0d1-e978f1cf304f",
-  "startedAt": "2026-09-02T02:52:13.850Z",
+  "pid": 23774,
+  "port": 53771,
+  "token": "a844fc4f-d852-4d4d-8437-c906985413f1",
+  "startedAt": "2026-09-02T06:43:47.653Z",
   "serverPath": "/Users/zaclin/.claude/skills/gstack/browse/src/server.ts",
   "mode": "launched"
 }

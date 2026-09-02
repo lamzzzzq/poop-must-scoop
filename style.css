@@ -66,3 +66,19 @@ button.ghost.danger{background:#e2493d;color:#fff;margin-top:6px;width:100%}
 .perk .desc{font-size:13px;font-weight:400;margin-top:2px}
 .perk .src{margin-top:2px;display:block}
 .card h3 .cans{font-size:14px}
+/* 技能树 SVG */
+.tree-svg{width:100%;height:auto;display:block;background:#f3ead6;border-radius:12px;margin-top:6px;user-select:none}
+.tree-svg .edge{stroke:#c9b48a;stroke-width:3;stroke-dasharray:6 5}
+.tree-svg .edge.on{stroke:#b8760f;stroke-dasharray:none}
+.tree-svg .node{cursor:pointer}
+.tree-svg .node circle{fill:#fff;stroke:#c9b48a;stroke-width:2.5;stroke-dasharray:5 4}
+.tree-svg .node.afford circle{stroke:#e0a52c;stroke-dasharray:none;fill:#fff6dc}
+.tree-svg .node.bought circle{fill:#ffcc4d;stroke:#b8760f;stroke-dasharray:none}
+.tree-svg .node.maxed circle{fill:#cfe8c2;stroke:#3b5a24}
+.tree-svg .node.locked circle{fill:#eee;stroke:#bbb;stroke-dasharray:4 4}
+.tree-svg .node.sel circle{stroke:#e2493d;stroke-width:4;stroke-dasharray:none}
+.tree-svg text{text-anchor:middle;font-family:-apple-system,"PingFang SC",sans-serif;pointer-events:none;fill:#3b2a14}
+.tree-svg .nm{font-size:11px;font-weight:700}
+.tree-svg .lv{font-size:10px;opacity:.75}
+.tree-svg .node.locked text{fill:#999}
+#tree-detail{margin-top:6px}
