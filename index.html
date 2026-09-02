@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#5a8f3a">
 <title>屎必须铲 Poop Must Scoop</title>
-<link rel="stylesheet" href="style.css?v=0.4.0">
+<link rel="stylesheet" href="style.css?v=0.5.0">
 </head>
 <body>
 <div id="app">
@@ -33,10 +33,9 @@
       </div>
     </div>
     <div id="dayend" class="overlay hidden">
-      <div class="card wide">
-        <h2 id="de-title">收工</h2>
-        <div id="de-summary"></div>
-        <button id="btn-next" class="primary">下一天</button>
+      <div class="card wide settle">
+        <div class="settle-head"><h2 id="de-title">腰酸了！</h2><span id="de-cash" class="cashpill">$0</span></div>
+        <div id="de-body"></div>
       </div>
     </div>
     <div id="perkpick" class="overlay hidden top">
@@ -61,6 +60,6 @@
     <button id="btn-endday" class="ghost">收工</button>
   </footer>
 </div>
-<script src="game.js?v=0.4.0"></script>
+<script src="game.js?v=0.5.0"></script>
 </body>
 </html>
