@@ -20,7 +20,7 @@
 - **0902 晚 v0.6**：猫拉屎不让人看（手压着憋、走开读条 2s、回来暂停）；教学 = 第 1、2 天（7 步横幅 + 结算页提示，GDD §11+）；普通撸不再飘字只看便意数字；光标默认手、压屎才铲。
 
 ## 新分支：《再铲一坨》（0903 发散）
-- **0903 用户指令：GDD 写完先停，不急着做 demo。** 解压版细化 GDD `docs/GDD_relax_scooper_detail.md` 已完成（输入状态机/砂参数/实体/反馈规格/工单数据/评分/街区 1 六户）。`relax/` 是提前搭的粗坯（高度场砂+四阶段+袋子+补砂+猫+工单，headless 跑通一遍），**搁置**，等用户拍板再继续。
+- **0903 用户指令：GDD 写完先停，不急着做 demo。** 解压版细化 GDD `docs/GDD_relax_scooper_detail.md` 已完成（输入状态机/砂参数/实体/反馈规格/工单数据/评分/街区 1 六户）。`relax/` 是提前搭的 Canvas 2D 粗坯，**用户判「不代表手感，勿参考」**；砂的物理已单独立项 `~/Projects/litter-sand/`（Three.js，https://litter-sand.vercel.app ）。`relax/` 是提前搭的粗坯（高度场砂+四阶段+袋子+补砂+猫+工单，headless 跑通一遍），**搁置**，等用户拍板再继续。
 - 贪心抽卡 Roguelike：盆是牌、铲是抽、收手还是再铲一坨；变数只从盆里来；别人的盆铲钱、自家的盆铲故事，都是铲。
 - 文档：贪心版 `docs/GDD_scoop_one_more.md` · **解压版 `docs/GDD_relax_scooper.md`（0903，工作模拟：四阶段手感/六种砂/工单/猫+1/换砂/丢弃/36 户 6 街区）** · 发散 `docs/BRAINSTORM_scoop_one_more.md`；网页版 https://poop-must-scoop.vercel.app/gdd/ 三个 tab
 - 下一步：一盆一按钮 MVP 原型验证「再铲一坨」按下去爽不爽；定主线故事；先定是《屎必须铲》的模式还是新作。
