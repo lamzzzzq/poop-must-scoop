@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>再铲一坨 · 解压版 demo</title>
+<link rel="stylesheet" href="relax.css?v=0.1.1">
+</head>
+<body>
+<div id="app">
+  <header id="top">
+    <div class="house"><b id="house">陈婆婆家</b><span class="sub">街区 1 · 老小区 · 阿婆（18 岁狸花）</span></div>
+    <div class="litter-pick">砂：<button data-l="bentonite" class="on">膨润土</button><button data-l="tofu">豆腐砂</button></div>
+  </header>
+  <div id="stage"><canvas id="cv"></canvas>
+    <div id="splash" class="overlay"><div class="card">
+      <h1>再铲一坨</h1><p class="sub">解压版 demo v0.1 · 一个盆、一把铲、砂的物理</p>
+      <p>按住 = 铲入砂里 · 松开 = 端起来<br>端着左右晃 = 筛砂（砂漏回去，屎留下）<br>端着点袋子 = 倒进袋子 · 端着点砂 = 放回去</p>
+      <p class="tip">没有时间，没有分数压力。把盆铲干净，猫会回来用。</p>
+      <button id="btn-start" class="primary">进门</button>
+    </div></div>
+  </div>
+  <aside id="order">
+    <div class="order-t">🧾 工单 <span id="stars"></span></div>
+    <ul id="tasks"></ul>
+    <div id="special" class="special">⚠ 阿婆吃药，它的屎别冲，装袋留给我看</div>
+    <div id="review" class="review hidden"></div>
+  </aside>
+</div>
+<script src="relax.js?v=0.1.1"></script>
+</body>
+</html>

@@ -45,11 +45,11 @@ main input[type=checkbox]{margin-right:6px}
 </head>
 <body>
 <header><h1>《再铲一坨》</h1><span class="sub">One More Scoop · 设计文档</span>
-<nav class="tabs"><a href="#gdd" id="tab-gdd" class="on">贪心版 GDD</a><a href="#relax" id="tab-relax">解压版 GDD</a><a href="#brainstorm" id="tab-brainstorm">发散记录</a><a href="../" style="opacity:.6">← 屎必须铲 demo</a></nav></header>
+<nav class="tabs"><a href="#gdd" id="tab-gdd" class="on">贪心版 GDD</a><a href="#relax" id="tab-relax">解压版 GDD</a><a href="#detail" id="tab-detail">解压版细化</a><a href="#brainstorm" id="tab-brainstorm">发散记录</a><a href="../relax/" style="opacity:.5">解压版 demo（草稿·搁置）</a><a href="../" style="opacity:.6">← 屎必须铲 demo</a></nav></header>
 <div class="wrap"><aside id="toc"></aside><main id="main">加载中…</main></div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <script>
-const DOCS = { gdd: '../docs/GDD_scoop_one_more.md', relax: '../docs/GDD_relax_scooper.md', brainstorm: '../docs/BRAINSTORM_scoop_one_more.md' };
+const DOCS = { gdd: '../docs/GDD_scoop_one_more.md', relax: '../docs/GDD_relax_scooper.md', detail: '../docs/GDD_relax_scooper_detail.md', brainstorm: '../docs/BRAINSTORM_scoop_one_more.md' };
 async function show(key) {
   document.querySelectorAll('nav.tabs a').forEach(a => a.classList.toggle('on', a.id === 'tab-' + key));
   const md = await fetch(DOCS[key] + '?v=' + Date.now()).then(r => r.text());

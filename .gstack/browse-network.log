@@ -1,3 +1,6 @@
 [2026-09-03T09:12:17.975Z] GET http://localhost:8765/gdd/ → 200 (6ms, 4527B)
 [2026-09-03T09:12:17.988Z] GET https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js → pending (?ms, ?B)
 [2026-09-03T09:12:18.434Z] GET http://localhost:8765/docs/GDD_relax_scooper.md?v=1788426738432 → 200 (6ms, 19390B)
+[2026-09-03T09:26:34.999Z] GET http://localhost:8765/relax/ → 200 (2ms, 1565B)
+[2026-09-03T09:26:35.003Z] GET http://localhost:8765/relax/relax.css?v=0.1.0 → 200 (1ms, 2777B)
+[2026-09-03T09:26:35.003Z] GET http://localhost:8765/relax/relax.js?v=0.1.0 → 200 (4ms, 27603B)
