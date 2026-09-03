@@ -21,7 +21,7 @@
 
 ## 新分支：《再铲一坨》（0903 发散）
 - 贪心抽卡 Roguelike：盆是牌、铲是抽、收手还是再铲一坨；变数只从盆里来；别人的盆铲钱、自家的盆铲故事，都是铲。
-- 文档：`docs/GDD_scoop_one_more.md` + `docs/BRAINSTORM_scoop_one_more.md`；网页版 https://poop-must-scoop.vercel.app/gdd/
+- 文档：贪心版 `docs/GDD_scoop_one_more.md` · **解压版 `docs/GDD_relax_scooper.md`（0903，工作模拟：四阶段手感/六种砂/工单/猫+1/换砂/丢弃/36 户 6 街区）** · 发散 `docs/BRAINSTORM_scoop_one_more.md`；网页版 https://poop-must-scoop.vercel.app/gdd/ 三个 tab
 - 下一步：一盆一按钮 MVP 原型验证「再铲一坨」按下去爽不爽；定主线故事；先定是《屎必须铲》的模式还是新作。
 
 ## 下一步（v0.3）
